@@ -82,35 +82,37 @@ runs:
         fi
       fi
 
-      cat /home/runner/out/common/.config || true
+      cat /home/runner/out/kernel_aarch64_dot_config || true
 
-  - name: 'Gather Build Artifacts'
+    - name: 'Gather Build Artifacts'
     shell: bash
     working-directory: ${{ github.workspace }}
     run: |
       set -euo pipefail
-      if [ -f "/home/runner/out/dist/Image" ]; then
-        echo "Found Image at /home/runner/out/dist/Image"
+
+      OUT="/home/runner/out"
+
+      echo "Files in $OUT:"
+      find "$OUT" -maxdepth 1 -type f
+
+      if [ -f "$OUT/Image" ]; then
+        echo "Found Image"
         if [[ ${{ inputs.bypass }} == "true" ]]; then
-          cp "/home/runner/out/dist/Image" "${{ github.workspace }}/AnyKernel3/Bypass-Image"
+          cp "$OUT/Image" "${{ github.workspace }}/AnyKernel3/Bypass-Image"
         else
-          cp "/home/runner/out/dist/Image" "${{ github.workspace }}/AnyKernel3/Image"
+          cp "$OUT/Image" "${{ github.workspace }}/AnyKernel3/Image"
           echo "Kernel Version:"
-          strings "/home/runner/out/dist/Image" | grep -m1 "^Linux version "
+          strings "$OUT/Image" | grep -m1 "^Linux version " || true
         fi
-          exit 0
-        fi
-      if [ -f "/home/runner/out/Image" ]; then
-        echo "Found Image at /home/runner/out/Image"
-        if [[ ${{ inputs.bypass }} == "true" ]]; then
-          cp "/home/runner/out/Image" "${{ github.workspace }}/AnyKernel3/Bypass-Image"
-        else
-          cp "/home/runner/out/Image" "${{ github.workspace }}/AnyKernel3/Image"
-        fi
-        exit 0
       fi
 
-      exit 1
+      [ -f "$OUT/boot.img" ] && cp "$OUT/boot.img" "${{ github.workspace }}/boot.img"
+      [ -f "$OUT/vmlinux" ] && cp "$OUT/vmlinux" "${{ github.workspace }}/vmlinux"
+      [ -f "$OUT/System.map" ] && cp "$OUT/System.map" "${{ github.workspace }}/System.map"
+      [ -f "$OUT/kernel_aarch64_Module.symvers" ] && cp "$OUT/kernel_aarch64_Module.symvers" "${{ github.workspace }}/Module.symvers"
+      [ -f "$OUT/kernel_aarch64_dot_config" ] && cp "$OUT/kernel_aarch64_dot_config" "${{ github.workspace }}/.config"
+
+      ls -lh "${{ github.workspace }}"
   - name: Debug Build Output
     if: always()
     shell: bash
