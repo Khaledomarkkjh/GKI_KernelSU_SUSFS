@@ -84,7 +84,7 @@ runs:
 
       cat /home/runner/out/kernel_aarch64_dot_config || true
 
-    - name: 'Gather Build Artifacts'
+  - name: 'Gather Build Artifacts'
     shell: bash
     working-directory: ${{ github.workspace }}
     run: |
