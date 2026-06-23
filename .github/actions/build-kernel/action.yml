@@ -111,6 +111,23 @@ runs:
       fi
 
       exit 1
+  - name: Debug Build Output
+    if: always()
+    shell: bash
+    run: |
+      mkdir -p /tmp/kernel-debug
+      echo "===== OUT =====" > /tmp/kernel-debug/files.txt
+      find /home/runner/out -type f 2>/dev/null | sort >> /tmp/kernel-debug/files.txt
+      echo "" >> /tmp/kernel-debug/files.txt
+      echo "===== DIST =====" >> /tmp/kernel-debug/files.txt
+      find /home/runner/out/dist -type f 2>/dev/null | sort >> /tmp/kernel-debug/files.txt
+
+  - name: Upload Debug Output
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+      name: Kernel-Debug
+      path: /tmp/kernel-debug
 
   - name: 'Patch AnyKernel3 for Bypass Hack'
     shell: bash
