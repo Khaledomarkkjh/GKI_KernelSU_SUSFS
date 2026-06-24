@@ -43,8 +43,16 @@ runs:
     working-directory: ${{ github.workspace }}/kernel
     run: |
       set -uxo pipefail
+      
       cat common/arch/arm64/configs/gki_defconfig
       sed -i 's/check_defconfig//' ./common/build.config.gki
+      
+      # تعطيل -e مؤقتاً لالتقاط كود الخروج بدقة وبدون مفاجآت
+      set +e
+      
+      # تصفير المتغير بشكل صريح تأميناً لـ set -u ضد أي مسار غير متوقع
+      BUILD_RET=0
+      
       if [ -f "build/build.sh" ]; then
         BUILD_GKI_ARTIFACTS= \
         BUILD_GKI_CERTIFICATION_TOOLS=0 \
@@ -57,41 +65,56 @@ runs:
         BUILD_CONFIG=common/build.config.gki.aarch64 \
         build/build.sh -j"$(nproc)" \
         CC="/usr/bin/ccache clang" \
-        CXX="/usr/bin/ccache clang+" \
+        CXX="/usr/bin/ccache clang++" \
         HOSTCC="/usr/bin/ccache clang" \
-        HOSTCXX="/usr/bin/ccache clang+" \
+        HOSTCXX="/usr/bin/ccache clang++" \
         LD="${{ github.workspace }}/kernel/common/ld-wrapper" \
         HOSTLD="${{ github.workspace }}/kernel/common/ld-wrapper"
+        BUILD_RET=$?
       else
         if [[ ${{ inputs.version }} == "android16-6.12" ]]; then
           if [ "${{ inputs.bypass }}" = "false" ]; then
             sed -i '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' common/BUILD.bazel
           fi
+          
           tools/bazel run \
             --config=fast \
             --config=stamp \
             --disk_cache=/home/runner/.cache/bazel \
             //common:kernel_aarch64_dist \
             -- --destdir=/home/runner/out
-            BUILD_RET=$?
-      echo "Bazel returned: $BUILD_RET"
-
-      else
+          BUILD_RET=$?
+        else
           tools/bazel run \
             --config=fast \
             --config=stamp \
             --disk_cache=/home/runner/.cache/bazel \
             //common:kernel_aarch64_dist \
             -- --dist_dir=/home/runner/out
-           BUILD_RET=$?
-      echo "Bazel returned: $BUILD_RET"
+          BUILD_RET=$?
         fi
       fi
 
+      # إعادة تفعيل حماية -e لبقية الخطوات السكربت تالياً
+      set -e
+      
+      echo "Bazel/Build script returned: $BUILD_RET"
       cat /home/runner/out/kernel_aarch64_dot_config || true
       
+      # إذا فشل البناء، نطبع محتويات المجلدات فوراً لسهولة الفحص ثم نخرج بكود الخطأ
+      if [ "$BUILD_RET" -ne 0 ]; then
+        echo "❌ البناء فشل بكود خروج: $BUILD_RET"
+        
+        echo "===== BUILD FAILED ====="
+        ls -lah /home/runner/out || true
+        
+        echo "===== DIST CONTENT ====="
+        ls -lah /home/runner/out/dist || true
+        
+        exit "$BUILD_RET"
+      fi
+      
       echo "===== BUILD FINISHED ====="
-      echo "Build exit code: $BUILD_RET"
       ls -lah /home/runner/out
       
   - name: 'Gather Build Artifacts'
@@ -123,6 +146,70 @@ runs:
       [ -f "$OUT/kernel_aarch64_dot_config" ] && cp "$OUT/kernel_aarch64_dot_config" "${{ github.workspace }}/.config"
 
       ls -lh "${{ github.workspace }}"
+
+  - name: 'Patch AnyKernel3 for Bypass Hack'
+    shell: bash
+    if: ${{ inputs.bypass == 'true' }}
+    working-directory: ${{ github.workspace }}/AnyKernel3
+    run: |
+      set -euo pipefail
+      cp ${{ github.action_path }}/patches/bypass.patch "${{ github.workspace }}/AnyKernel3/bypass.patch"
+      patch -p1 < bypass.patch
+
+  - name: Debug Build Output
+    if: always()
+    shell: bash
+    run: |
+      set +e
+      
+      mkdir -p /tmp/kernel-debug
+      
+      echo "===== OUT =====" > /tmp/kernel-debug/files.txt
+      find /home/runner/out -type f 2>/dev/null | sort >> /tmp/kernel-debug/files.txt || true
+      
+      echo "" >> /tmp/kernel-debug/files.txt
+      
+      echo "===== DIST =====" >> /tmp/kernel-debug/files.txt
+      find /home/runner/out/dist -type f 2>/dev/null | sort >> /tmp/kernel-debug/files.txt || true
+      
+      exit 0
+
+  - name: Upload Debug Output
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+      name: Kernel-Debug
+      path: /tmp/kernel-debug
+      
+  - name: Upload Kernel Files
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+      name: Kernel-Files
+      path: |
+        boot.img
+        vmlinux
+        Module.symvers
+        System.map
+        .config
+        AnyKernel3/Image
+        AnyKernel3/Bypass-Image
+        if [[ ${{ inputs.bypass }} == "true" ]]; then
+          cp "$OUT/Image" "${{ github.workspace }}/AnyKernel3/Bypass-Image"
+        else
+          cp "$OUT/Image" "${{ github.workspace }}/AnyKernel3/Image"
+          echo "Kernel Version:"
+          strings "$OUT/Image" | grep -m1 "^Linux version " || true
+        fi
+        fi
+
+        [ -f "$OUT/boot.img" ] && cp "$OUT/boot.img" "${{ github.workspace }}/boot.img"
+        [ -f "$OUT/vmlinux" ] && cp "$OUT/vmlinux" "${{ github.workspace }}/vmlinux"
+        [ -f "$OUT/System.map" ] && cp "$OUT/System.map" "${{ github.workspace }}/System.map"
+        [ -f "$OUT/kernel_aarch64_Module.symvers" ] && cp "$OUT/kernel_aarch64_Module.symvers" "${{ github.workspace }}/Module.symvers"
+        [ -f "$OUT/kernel_aarch64_dot_config" ] && cp "$OUT/kernel_aarch64_dot_config" "${{ github.workspace }}/.config"
+
+          ls -lh "${{ github.workspace }}"
   - name: Debug Build Output
     if: always()
     shell: bash
