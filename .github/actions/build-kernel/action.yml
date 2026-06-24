@@ -95,13 +95,16 @@ runs:
         fi
       fi
 
-      # إعادة تفعيل حماية -e لبقية الخطوات السكربت تالياً
+      # طباعة كود الخروج فوراً للتشخيص القاطع
+      echo "BUILD_RET=$BUILD_RET"
+
+      # إعادة تفعيل حماية -e لبقية خطوات السكربت
       set -e
       
       echo "Bazel/Build script returned: $BUILD_RET"
       cat /home/runner/out/kernel_aarch64_dot_config || true
       
-      # إذا فشل البناء، نطبع محتويات المجلدات فوراً لسهولة الفحص ثم نخرج بكود الخطأ
+      # إذا فشل البناء، نطبع محتويات المجلدات فوراً لسهولة الفحص ثم نخرج بكود الخطأ الأصلي
       if [ "$BUILD_RET" -ne 0 ]; then
         echo "❌ البناء فشل بكود خروج: $BUILD_RET"
         
@@ -178,14 +181,14 @@ runs:
     if: always()
     uses: actions/upload-artifact@v4
     with:
-      name: Kernel-Debug
+      name: Kernel-Debug-${{ inputs.version }}-${{ inputs.bypass }}
       path: /tmp/kernel-debug
       
   - name: Upload Kernel Files
     if: always()
     uses: actions/upload-artifact@v4
     with:
-      name: Kernel-Files
+      name: Kernel-Files-${{ inputs.version }}-${{ inputs.bypass }}
       path: |
         boot.img
         vmlinux
@@ -194,59 +197,3 @@ runs:
         .config
         AnyKernel3/Image
         AnyKernel3/Bypass-Image
-        if [[ ${{ inputs.bypass }} == "true" ]]; then
-          cp "$OUT/Image" "${{ github.workspace }}/AnyKernel3/Bypass-Image"
-        else
-          cp "$OUT/Image" "${{ github.workspace }}/AnyKernel3/Image"
-          echo "Kernel Version:"
-          strings "$OUT/Image" | grep -m1 "^Linux version " || true
-        fi
-        fi
-
-        [ -f "$OUT/boot.img" ] && cp "$OUT/boot.img" "${{ github.workspace }}/boot.img"
-        [ -f "$OUT/vmlinux" ] && cp "$OUT/vmlinux" "${{ github.workspace }}/vmlinux"
-        [ -f "$OUT/System.map" ] && cp "$OUT/System.map" "${{ github.workspace }}/System.map"
-        [ -f "$OUT/kernel_aarch64_Module.symvers" ] && cp "$OUT/kernel_aarch64_Module.symvers" "${{ github.workspace }}/Module.symvers"
-        [ -f "$OUT/kernel_aarch64_dot_config" ] && cp "$OUT/kernel_aarch64_dot_config" "${{ github.workspace }}/.config"
-
-          ls -lh "${{ github.workspace }}"
-  - name: Debug Build Output
-    if: always()
-    shell: bash
-    run: |
-      mkdir -p /tmp/kernel-debug
-      echo "===== OUT =====" > /tmp/kernel-debug/files.txt
-      find /home/runner/out -type f 2>/dev/null | sort >> /tmp/kernel-debug/files.txt
-      echo "" >> /tmp/kernel-debug/files.txt
-      echo "===== DIST =====" >> /tmp/kernel-debug/files.txt
-      find /home/runner/out/dist -type f 2>/dev/null | sort >> /tmp/kernel-debug/files.txt
-
-  - name: Upload Debug Output
-    if: always()
-    uses: actions/upload-artifact@v4
-    with:
-      name: Kernel-Debug
-      path: /tmp/kernel-debug
-      
-  - name: Upload Kernel Files
-    if: always()
-    uses: actions/upload-artifact@v4
-    with:
-     name: Kernel-Files
-     path: |
-        boot.img
-        vmlinux
-        Module.symvers
-        System.map
-        .config
-        AnyKernel3/Image
-      
-  - name: 'Patch AnyKernel3 for Bypass Hack'
-    shell: bash
-    if: ${{ inputs.bypass == 'true' }}
-    working-directory: ${{ github.workspace }}/AnyKernel3
-    run: |
-      set -euo pipefail
-      cp ${{ github.action_path }}/patches/bypass.patch "${{ github.workspace }}/AnyKernel3/bypass.patch"
-      patch -p1 < bypass.patch
-
