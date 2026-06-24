@@ -130,7 +130,20 @@ runs:
     with:
       name: Kernel-Debug
       path: /tmp/kernel-debug
-
+      
+  - name: Upload Kernel Files
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+     name: Kernel-Files
+     path: |
+        boot.img
+        vmlinux
+        Module.symvers
+        System.map
+        .config
+        AnyKernel3/Image
+      
   - name: 'Patch AnyKernel3 for Bypass Hack'
     shell: bash
     if: ${{ inputs.bypass == 'true' }}
