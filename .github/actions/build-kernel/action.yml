@@ -42,6 +42,7 @@ runs:
     shell: bash
     working-directory: ${{ github.workspace }}/kernel
     run: |
+      set -uxo pipefail
       cat common/arch/arm64/configs/gki_defconfig
       sed -i 's/check_defconfig//' ./common/build.config.gki
       if [ -f "build/build.sh" ]; then
@@ -72,18 +73,27 @@ runs:
             --disk_cache=/home/runner/.cache/bazel \
             //common:kernel_aarch64_dist \
             -- --destdir=/home/runner/out
-        else
+            BUILD_RET=$?
+      echo "Bazel returned: $BUILD_RET"
+
+      else
           tools/bazel run \
             --config=fast \
             --config=stamp \
             --disk_cache=/home/runner/.cache/bazel \
             //common:kernel_aarch64_dist \
             -- --dist_dir=/home/runner/out
+           BUILD_RET=$?
+      echo "Bazel returned: $BUILD_RET"
         fi
       fi
 
       cat /home/runner/out/kernel_aarch64_dot_config || true
-
+      
+      echo "===== BUILD FINISHED ====="
+      echo "Build exit code: $BUILD_RET"
+      ls -lah /home/runner/out
+      
   - name: 'Gather Build Artifacts'
     shell: bash
     working-directory: ${{ github.workspace }}
