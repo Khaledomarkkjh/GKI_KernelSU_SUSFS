@@ -99,7 +99,7 @@ jobs:
             arch/arm64/configs/gki_defconfig
 
       - name: Build GKI and modules
-        working-directory: kernel
+        working-directory: kernel/common
         shell: bash
         run: |
           set -eux
