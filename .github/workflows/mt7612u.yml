@@ -98,40 +98,26 @@ jobs:
             '^(CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WLAN_VENDOR_MEDIATEK|CONFIG_MT76)' \
             arch/arm64/configs/gki_defconfig
             
-      - name: Locate Android kernel build script
-        shell: bash
-        run: |
-          set -eux
-
-          echo "=== KERNEL TREE ==="
-          ls -lah kernel || true
-
-          echo "=== COMMON TREE ==="
-          ls -lah kernel/common | head -50 || true
-
-          echo "=== SEARCHING FOR build.sh ==="
-          find kernel -type f -path '*/build/build.sh' -print
-
-          echo "=== SEARCHING FOR build.config.gki.aarch64 ==="
-          find kernel -type f -name 'build.config.gki.aarch64' -print
           
       - name: Build GKI and modules
-        working-directory: kernel/common
+        working-directory: kernel
         shell: bash
         run: |
           set -eux
 
-          BUILD_GKI_ARTIFACTS="" \
-          BUILD_GKI_CERTIFICATION_TOOLS=0 \
-          BUILD_SYSTEM_DLKM=0 \
-          SKIP_VENDOR_BOOT=1 \
-          SKIP_CP_KERNEL_HDR=1 \
-          OUT_DIR="/home/runner/out" \
-          LTO=thin \
-          BUILD_CONFIG=common/build.config.gki.aarch64 \
-          build/build.sh -j"$(nproc)"
+          sed -i \
+            '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' \
+            common/BUILD.bazel
 
-          echo "=== BUILD FINISHED ==="
+          echo "=== STARTING BAZEL KERNEL BUILD ==="
+
+          tools/bazel build \
+            --config=fast \
+            --config=stamp \
+            --disk_cache=/home/runner/.cache/bazel \
+            //common:kernel_aarch64
+
+          echo "=== BAZEL BUILD FINISHED ==="
 
       - name: Find MT76 modules
         shell: bash
@@ -140,7 +126,7 @@ jobs:
 
           echo "=== SEARCHING FOR MT76 MODULES ==="
 
-          find /home/runner/out "$GITHUB_WORKSPACE/kernel" \
+          find "$GITHUB_WORKSPACE/kernel/bazel-bin" /home/runner/out/
             -type f \
             \( \
               -name 'mt76.ko' \
@@ -159,7 +145,7 @@ jobs:
 
           mkdir -p mt76-artifact
 
-          find /home/runner/out "$GITHUB_WORKSPACE/kernel" \
+          find "$GITHUB_WORKSPACE/kernel/bazel-bin" /home/runner/out/
             -type f \
             \( \
               -name 'mt76.ko' \
