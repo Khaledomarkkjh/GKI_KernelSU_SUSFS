@@ -173,10 +173,18 @@ jobs:
 
           echo "=== COLLECTING MT76 MODULES ==="
 
-          while IFS= read -r module; do
-            echo "COPY: $module"
-            cp "$module" mt76-artifact/
-          done < mt76-files.txt
+          KBUILD_OUT="bazel-bin/common/kernel_aarch64/kbuild_output"
+
+          test -d "$KBUILD_OUT"
+
+          find "$KBUILD_OUT" -type f \( \
+            -name 'mt76.ko' -o \
+            -name 'mt76-usb.ko' -o \
+            -name 'mt76x02-lib.ko' -o \
+            -name 'mt76x02-usb.ko' -o \
+            -name 'mt76x2-common.ko' -o \
+            -name 'mt76x2u.ko' \
+          \) -exec cp -L {} mt76-artifact/ \;
 
           echo "=== COLLECTED MODULES ==="
           ls -lh mt76-artifact/
@@ -189,7 +197,6 @@ jobs:
           test -f mt76-artifact/mt76x2u.ko
 
           echo "=== ALL REQUIRED MT76 MODULES COLLECTED ==="
-
       - name: Check module metadata
         working-directory: kernel
         shell: bash
