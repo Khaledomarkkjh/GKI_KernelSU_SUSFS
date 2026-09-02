@@ -117,6 +117,7 @@ jobs:
           --disk_cache=/home/runner/.cache/bazel \
           --allow_undeclared_modules \
             --verbose_failures \
+            --subcommands \
           //common:kernel_aarch64
           echo "=== BAZEL BUILD FINISHED ==="
 
