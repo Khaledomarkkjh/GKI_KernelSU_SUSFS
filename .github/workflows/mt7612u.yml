@@ -97,7 +97,24 @@ jobs:
           grep -E \
             '^(CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WLAN_VENDOR_MEDIATEK|CONFIG_MT76)' \
             arch/arm64/configs/gki_defconfig
+            
+      - name: Locate Android kernel build script
+        shell: bash
+        run: |
+          set -eux
 
+          echo "=== KERNEL TREE ==="
+          ls -lah kernel || true
+
+          echo "=== COMMON TREE ==="
+          ls -lah kernel/common | head -50 || true
+
+          echo "=== SEARCHING FOR build.sh ==="
+          find kernel -type f -path '*/build/build.sh' -print
+
+          echo "=== SEARCHING FOR build.config.gki.aarch64 ==="
+          find kernel -type f -name 'build.config.gki.aarch64' -print
+          
       - name: Build GKI and modules
         working-directory: kernel/common
         shell: bash
