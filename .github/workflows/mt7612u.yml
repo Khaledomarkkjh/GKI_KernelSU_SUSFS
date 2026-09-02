@@ -31,22 +31,23 @@ jobs:
         working-directory: kernel
         shell: bash
         run: |
-          set -eux
-          python3 - <<'PY'
-          from pathlib import Path
+         set -eux
+         python3 - <<'PY'
+         from pathlib import Path
 
-          p = Path("build/kernel/kleaf/impl/kernel_build.bzl")
-          s = p.read_text()
+         p = Path("build/kernel/kleaf/impl/kernel_build.bzl")
+         s = p.read_text()
 
-          old = "find " + "$" + "{OUT_DIR} -name *.h -print0"
-          new = "find " + "$" + "{OUT_DIR} -name '*.h' -print0"
+         old = "-name *.h -print0"
+         new = "-name '*.h' -print0"
 
-          if old not in s:
-              raise SystemExit("Expected Kleaf header command not found")
+         if old not in s:
+             raise SystemExit("Kleaf header glob pattern not found")
 
           p.write_text(s.replace(old, new))
           print("=== KLEAF HEADER GLOB FIXED ===")
           PY
+
           
       - name: Pin exact Android 16 6.12.30 source
         working-directory: kernel/common
