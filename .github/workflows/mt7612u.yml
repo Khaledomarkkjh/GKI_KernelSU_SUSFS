@@ -115,8 +115,8 @@ jobs:
             --config=fast \
             --config=stamp \
             --disk_cache=/home/runner/.cache/bazel \
-            //common:kernel_aarch64
-
+            --allow_undeclared_modules \
+             //common:kernel_aarch64
           echo "=== BAZEL BUILD FINISHED ==="
 
       - name: Find MT76 modules
