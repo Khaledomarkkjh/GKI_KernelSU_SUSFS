@@ -146,68 +146,58 @@ jobs:
           echo "=== BAZEL BUILD FINISHED ==="
 
       - name: Find MT76 modules
+        working-directory: kernel
         shell: bash
         run: |
           set -eux
-
-          echo "=== SEARCHING FOR MT76 MODULES ==="
-
-          find "$GITHUB_WORKSPACE/kernel/bazel-bin" /home/runner/out \
-            -type f \
-            \( \
-              -name 'mt76.ko' \
-              -o -name 'mt76-usb.ko' \
-              -o -name 'mt76x02-lib.ko' \
-              -o -name 'mt76x02-usb.ko' \
-              -o -name 'mt76x2-common.ko' \
-              -o -name 'mt76x2u.ko' \
-            \) \
-            -print | tee mt76-files.txt
-
+          echo "=== SEARCHING BUILT MT76 MODULES ==="
+          find bazel-out -type f \( \
+            -name 'mt76.ko' -o \
+            -name 'mt76-usb.ko' -o \
+            -name 'mt76x02-lib.ko' -o \
+            -name 'mt76x02-usb.ko' -o \
+            -name 'mt76x2-common.ko' -o \
+            -name 'mt76x2u.ko' \
+          \) -print | tee mt76-files.txt
+          test -s mt76-files.txt
+          echo "=== MT76 MODULES FOUND ==="
+          cat mt76-files.txt
       - name: Collect MT76 modules
+        working-directory: kernel
         shell: bash
         run: |
           set -eux
-
+          rm -rf mt76-artifact
           mkdir -p mt76-artifact
-
-          find "$GITHUB_WORKSPACE/kernel/bazel-bin" /home/runner/out \
-            -type f \
-            \( \
-              -name 'mt76.ko' \
-              -o -name 'mt76-usb.ko' \
-              -o -name 'mt76x02-lib.ko' \
-              -o -name 'mt76x02-usb.ko' \
-              -o -name 'mt76x2-common.ko' \
-              -o -name 'mt76x2u.ko' \
-            \) \
-            -exec cp -v {} mt76-artifact/ \;
-
-          echo
+          echo "=== COLLECTING MT76 MODULES ==="
+          while IFS= read -r module; do
+            echo "COPY: $module"
+            cp "$module" mt76-artifact/
+          done < mt76-files.txt
           echo "=== COLLECTED MODULES ==="
-
-          ls -lah mt76-artifact
-
+          ls -lh mt76-artifact/
+          test -f mt76-artifact/mt76.ko
+          test -f mt76-artifact/mt76-usb.ko
+          test -f mt76-artifact/mt76x02-lib.ko
+          test -f mt76-artifact/mt76x02-usb.ko
+          test -f mt76-artifact/mt76x2-common.ko
           test -f mt76-artifact/mt76x2u.ko
-
+          echo "=== ALL REQUIRED MT76 MODULES COLLECTED ==="
       - name: Check module metadata
+        working-directory: kernel
         shell: bash
         run: |
           set -eux
-
           for f in mt76-artifact/*.ko; do
-            echo
             echo "================================"
             echo "$f"
             echo "================================"
-
             strings "$f" | \
               grep -E '^(name=|depends=|vermagic=)' || true
           done
-
       - name: Upload MT7612U modules
         uses: actions/upload-artifact@v4
         with:
           name: MT7612U-Wild-6.12.30-r7
-          path: mt76-artifact/
+          path: kernel/mt76-artifact/
           if-no-files-found: error
