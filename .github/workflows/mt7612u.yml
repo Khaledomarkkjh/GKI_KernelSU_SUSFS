@@ -50,18 +50,41 @@ jobs:
 
 
       - name: Enable MT7612U
-        uses: ./.github/actions/set-kernel-config
-        with:
-          config_list: |
-            CONFIG_CFG80211=m
-            CONFIG_MAC80211=m
-            CONFIG_WLAN_VENDOR_MEDIATEK=y
-            CONFIG_MT76_CORE=m
-            CONFIG_MT76_USB=m
-            CONFIG_MT76X02_LIB=m
-            CONFIG_MT76X02_USB=m
-            CONFIG_MT76X2_COMMON=m
-            CONFIG_MT76X2U=m
+        working-directory: kernel/common
+        shell: bash
+        run: |
+          set -eux
+
+          DEFCONFIG="arch/arm64/configs/gki_defconfig"
+
+          for line in \
+            "CONFIG_CFG80211=m" \
+            "CONFIG_MAC80211=m" \
+            "CONFIG_WLAN_VENDOR_MEDIATEK=y" \
+            "CONFIG_MT76_CORE=m" \
+            "CONFIG_MT76_USB=m" \
+            "CONFIG_MT76X02_LIB=m" \
+            "CONFIG_MT76X02_USB=m" \
+            "CONFIG_MT76X2_COMMON=m" \
+            "CONFIG_MT76X2U=m"
+          do
+            key="${line%%=*}"
+            value="${line#*=}"
+
+            if grep -q "^${key}=" "$DEFCONFIG"; then
+              sed -i "s/^${key}=.*/${line}/" "$DEFCONFIG"
+            elif grep -q "^# ${key} is not set" "$DEFCONFIG"; then
+              sed -i "s/^# ${key} is not set/${line}/" "$DEFCONFIG"
+            else
+              echo "$line" >> "$DEFCONFIG"
+            fi
+          done
+
+          echo "=== MT7612U CONFIG APPLIED ==="
+
+          grep -E \
+            '^(CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WLAN_VENDOR_MEDIATEK|CONFIG_MT76)' \
+            "$DEFCONFIG"
 
       - name: Verify MT7612U configuration
         working-directory: kernel/common
