@@ -27,26 +27,15 @@ jobs:
           kernel_version: "6.12"
           os_patch_level: "2025-07"
           
-      - name: Fix Kleaf header glob
+      - name: Locate Kleaf kernel_build.bzl
         working-directory: kernel
         shell: bash
         run: |
           set -eux
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("build/kleaf/impl/kernel_build.bzl")
-          s = p.read_text()
-
-          old = "find " + "$" + "{OUT_DIR} -name *.h -print0"
-          new = "find " + "$" + "{OUT_DIR} -name '*.h' -print0"
-
-          if old not in s:
-              raise SystemExit("Expected find command not found")
-
-          p.write_text(s.replace(old, new))
-          print("=== KLEAF HEADER GLOB FIXED ===")
-          PY
+          echo "=== SEARCHING FOR kernel_build.bzl ==="
+          find . -type f -name 'kernel_build.bzl' -print
+          echo "=== SEARCHING FOR Kleaf ==="
+          find . -maxdepth 4 -type d -name 'kleaf' -print
           
       - name: Pin exact Android 16 6.12.30 source
         working-directory: kernel/common
