@@ -173,11 +173,11 @@ jobs:
 
           echo "=== COLLECTING MT76 MODULES ==="
 
-          KBUILD_OUT="bazel-bin/common/kernel_aarch64/kbuild_output"
+          STAGING_OUT="bazel-out/k8-fastbuild/bin/common/kernel_aarch64/staging/lib/modules"
 
-          test -d "$KBUILD_OUT"
+          test -d "$STAGING_OUT"
 
-          find "$KBUILD_OUT" -type f \( \
+          find "$STAGING_OUT" -type f \( \
             -name 'mt76.ko' -o \
             -name 'mt76-usb.ko' -o \
             -name 'mt76x02-lib.ko' -o \
