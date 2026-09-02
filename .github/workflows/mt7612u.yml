@@ -143,25 +143,24 @@ jobs:
         run: |
           set -eux
 
-          echo "=== SEARCHING PRESERVED KBUILD OUTPUT ==="
+          echo "=== SEARCHING ALL KO FILES ==="
 
           KBUILD_OUT="bazel-bin/common/kernel_aarch64/kbuild_output"
 
           test -d "$KBUILD_OUT"
 
-          find "$KBUILD_OUT" -type f \( \
-            -name 'mt76.ko' -o \
-            -name 'mt76-usb.ko' -o \
-            -name 'mt76x02-lib.ko' -o \
-            -name 'mt76x02-usb.ko' -o \
-            -name 'mt76x2-common.ko' -o \
-            -name 'mt76x2u.ko' \
-          \) -print | tee mt76-files.txt
+          echo "=== ALL KO FILES ==="
+          find "$KBUILD_OUT" -type f -name '*.ko' -print | tee all-ko-files.txt || true
 
-          test -s mt76-files.txt
+          echo "=== MT76 NAME MATCHES ==="
+          grep -Ei '/(mt76|mt76x02|mt76x2)[^/]*\.ko$' all-ko-files.txt | tee mt76-files.txt || true
 
-          echo "=== MT76 MODULES FOUND ==="
-          cat mt76-files.txt
+          echo "=== DIRECTORY TREE AROUND MODULES ==="
+          find "$KBUILD_OUT" -type f | grep -E 'modules|kernel' | head -200 || true
+
+          echo "=== COUNTS ==="
+          echo "All KO files: $(wc -l < all-ko-files.txt)"
+          echo "MT76 files: $(wc -l < mt76-files.txt)"
           
       - name: Collect MT76 modules
         working-directory: kernel
