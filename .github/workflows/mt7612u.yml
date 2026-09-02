@@ -116,7 +116,7 @@ jobs:
             --config=stamp \
             --disk_cache=/home/runner/.cache/bazel \
             --allow_undeclared_modules \
-             //common:kernel_aarch64
+          //common:kernel_aarch64
           echo "=== BAZEL BUILD FINISHED ==="
 
       - name: Find MT76 modules
@@ -126,7 +126,7 @@ jobs:
 
           echo "=== SEARCHING FOR MT76 MODULES ==="
 
-          find "$GITHUB_WORKSPACE/kernel/bazel-bin" /home/runner/out/
+          find "$GITHUB_WORKSPACE/kernel/bazel-bin" /home/runner/out\
             -type f \
             \( \
               -name 'mt76.ko' \
@@ -145,7 +145,7 @@ jobs:
 
           mkdir -p mt76-artifact
 
-          find "$GITHUB_WORKSPACE/kernel/bazel-bin" /home/runner/out/
+          find "$GITHUB_WORKSPACE/kernel/bazel-bin" /home/runner/out\
             -type f \
             \( \
               -name 'mt76.ko' \
