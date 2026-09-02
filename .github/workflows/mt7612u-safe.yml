@@ -1,0 +1,213 @@
+name: Build MT7612U
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-mt7612u:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Wild build environment
+        uses: ./.github/actions/setup-build-environment
+        with:
+          version: android16-6.12
+          sublevel: "30"
+
+      - name: Download Android 16 kernel
+        uses: ./.github/actions/download-kernel
+        with:
+          version: android16-6.12
+          android_version: android16
+          kernel_version: "6.12"
+          os_patch_level: "2025-07"
+          
+      - name: Fix Kleaf header glob
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -eux
+
+          echo "=== BEFORE ==="
+          grep -RFn --include='*.bzl' -- '-name *.h -print0' build/kernel/kleaf || true
+
+          find build/kernel/kleaf -type f -name '*.bzl' -print0 |
+          while IFS= read -r -d '' FILE; do
+            sed -i "s/-name \*\.h -print0/-name '*.h' -print0/g" "$FILE"
+          done
+
+          echo "=== AFTER ==="
+          if grep -RFn --include='*.bzl' -- '-name *.h -print0' build/kernel/kleaf; then
+            echo "ERROR: unquoted header glob still exists"
+            exit 1
+          fi
+
+          grep -RFn --include='*.bzl' -- "-name '*.h' -print0" build/kernel/kleaf || true
+
+          echo "=== KLEAF HEADER GLOB FIXED ==="
+
+          
+      - name: Pin exact Android 16 6.12.30 source
+        working-directory: kernel/common
+        shell: bash
+        run: |
+          set -eux
+
+          git fetch --depth=1 \
+            https://android.googlesource.com/kernel/common \
+            android16-6.12-2025-07_r7
+
+          git checkout --detach FETCH_HEAD
+
+          echo "=== SOURCE COMMIT ==="
+          git rev-parse HEAD
+
+          test "$(git rev-parse HEAD)" = \
+            "6e872b4863d6dd892490c32d973db1a9df8d3710"
+
+          echo "=== EXACT ANDROID R7 SOURCE VERIFIED ==="
+
+
+      - name: Enable MT7612U
+        working-directory: kernel/common
+        shell: bash
+        run: |
+          set -eux
+
+          DEFCONFIG="arch/arm64/configs/gki_defconfig"
+
+          for line in \
+            "CONFIG_CFG80211=m" \
+            "CONFIG_MAC80211=m" \
+            "CONFIG_WLAN_VENDOR_MEDIATEK=y" \
+            "CONFIG_MT76_CORE=m" \
+            "CONFIG_MT76_USB=m" \
+            "CONFIG_MT76X02_LIB=m" \
+            "CONFIG_MT76X02_USB=m" \
+            "CONFIG_MT76X2_COMMON=m" \
+            "CONFIG_MT76X2U=m"
+          do
+            key="${line%%=*}"
+            value="${line#*=}"
+
+            if grep -q "^${key}=" "$DEFCONFIG"; then
+              sed -i "s/^${key}=.*/${line}/" "$DEFCONFIG"
+            elif grep -q "^# ${key} is not set" "$DEFCONFIG"; then
+              sed -i "s/^# ${key} is not set/${line}/" "$DEFCONFIG"
+            else
+              echo "$line" >> "$DEFCONFIG"
+            fi
+          done
+
+          echo "=== MT7612U CONFIG APPLIED ==="
+
+          grep -E \
+            '^(CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WLAN_VENDOR_MEDIATEK|CONFIG_MT76)' \
+            "$DEFCONFIG"
+
+      - name: Verify MT7612U configuration
+        working-directory: kernel/common
+        shell: bash
+        run: |
+          set -eux
+
+          echo "=== MT76 CONFIGURATION ==="
+
+          grep -E \
+            '^(CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WLAN_VENDOR_MEDIATEK|CONFIG_MT76)' \
+            arch/arm64/configs/gki_defconfig
+            
+          
+      - name: Build GKI and modules
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -eux
+
+          sed -i \
+            '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' \
+            common/BUILD.bazel
+
+          echo "=== STARTING BAZEL KERNEL BUILD ==="
+
+          tools/bazel build \
+          --config=fast \
+          --config=stamp \
+          --disk_cache=/home/runner/.cache/bazel \
+          --allow_undeclared_modules \
+            --verbose_failures \
+            --subcommands \
+          //common:kernel_aarch64
+          echo "=== BAZEL BUILD FINISHED ==="
+
+      - name: Find MT76 modules
+        shell: bash
+        run: |
+          set -eux
+
+          echo "=== SEARCHING FOR MT76 MODULES ==="
+
+          find "$GITHUB_WORKSPACE/kernel/bazel-bin" /home/runner/out \
+            -type f \
+            \( \
+              -name 'mt76.ko' \
+              -o -name 'mt76-usb.ko' \
+              -o -name 'mt76x02-lib.ko' \
+              -o -name 'mt76x02-usb.ko' \
+              -o -name 'mt76x2-common.ko' \
+              -o -name 'mt76x2u.ko' \
+            \) \
+            -print | tee mt76-files.txt
+
+      - name: Collect MT76 modules
+        shell: bash
+        run: |
+          set -eux
+
+          mkdir -p mt76-artifact
+
+          find "$GITHUB_WORKSPACE/kernel/bazel-bin" /home/runner/out \
+            -type f \
+            \( \
+              -name 'mt76.ko' \
+              -o -name 'mt76-usb.ko' \
+              -o -name 'mt76x02-lib.ko' \
+              -o -name 'mt76x02-usb.ko' \
+              -o -name 'mt76x2-common.ko' \
+              -o -name 'mt76x2u.ko' \
+            \) \
+            -exec cp -v {} mt76-artifact/ \;
+
+          echo
+          echo "=== COLLECTED MODULES ==="
+
+          ls -lah mt76-artifact
+
+          test -f mt76-artifact/mt76x2u.ko
+
+      - name: Check module metadata
+        shell: bash
+        run: |
+          set -eux
+
+          for f in mt76-artifact/*.ko; do
+            echo
+            echo "================================"
+            echo "$f"
+            echo "================================"
+
+            strings "$f" | \
+              grep -E '^(name=|depends=|vermagic=)' || true
+          done
+
+      - name: Upload MT7612U modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: MT7612U-Wild-6.12.30-r7
+          path: mt76-artifact/
+          if-no-files-found: error
