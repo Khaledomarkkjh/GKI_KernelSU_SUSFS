@@ -140,6 +140,7 @@ jobs:
           --config=stamp \
           --disk_cache=/home/runner/.cache/bazel \
           --allow_undeclared_modules \
+          --preserve_kbuild_output \
             --verbose_failures \
             --subcommands \
           //common:kernel_aarch64
@@ -150,8 +151,14 @@ jobs:
         shell: bash
         run: |
           set -eux
-          echo "=== SEARCHING BUILT MT76 MODULES ==="
-          find bazel-out -type f \( \
+
+          echo "=== SEARCHING PRESERVED KBUILD OUTPUT ==="
+
+          KBUILD_OUT="bazel-bin/common/kernel_aarch64/kbuild_output"
+
+          test -d "$KBUILD_OUT"
+
+          find "$KBUILD_OUT" -type f \( \
             -name 'mt76.ko' -o \
             -name 'mt76-usb.ko' -o \
             -name 'mt76x02-lib.ko' -o \
@@ -159,7 +166,9 @@ jobs:
             -name 'mt76x2-common.ko' -o \
             -name 'mt76x2u.ko' \
           \) -print | tee mt76-files.txt
+
           test -s mt76-files.txt
+
           echo "=== MT76 MODULES FOUND ==="
           cat mt76-files.txt
       - name: Collect MT76 modules
