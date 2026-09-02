@@ -48,14 +48,6 @@ jobs:
 
           echo "=== EXACT ANDROID R7 SOURCE VERIFIED ==="
 
-      - name: Apply Wild kernel fixes
-        uses: ./.github/actions/kernel-fixes
-        with:
-          version: android16-6.12
-          android_version: android16
-          kernel_version: "6.12"
-          sublevel: "30"
-          os_patch_level: "2025-07"
 
       - name: Enable MT7612U
         uses: ./.github/actions/set-kernel-config
