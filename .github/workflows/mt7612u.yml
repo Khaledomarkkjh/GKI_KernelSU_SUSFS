@@ -86,27 +86,23 @@ jobs:
 
           echo "=== MT76 SOURCE VERIFIED ==="
       
-      - name: Inspect Kleaf kernel_module API
+      - name: Inspect exact Kleaf kernel_module API
         working-directory: kernel
         shell: bash
         run: |
           set -eux
 
-          echo "=== KLEAF VERSION / KERNEL MODULE API ==="
+          echo "=== EXACT kernel_module SIGNATURE ==="
 
-          grep -R -n \
-            'def kernel_module' \
-            build/kernel/kleaf \
-            | head -20
+          sed -n '65,115p' \
+            build/kernel/kleaf/impl/kernel_module.bzl
 
-          echo "=== KERNEL MODULE RULE LOAD ==="
+          echo "=== EXACT kernel_module ATTRS ==="
 
-          grep -R -n \
-            'kernel_module' \
-            build/kernel/kleaf/BUILD \
-            build/kernel/kleaf/*.bzl \
-            2>/dev/null \
-            | head -50
+          grep -nE \
+            '"(deps|kernel_module_deps|srcs|makefile|kernel_build|outs)"' \
+            build/kernel/kleaf/impl/kernel_module.bzl \
+            | head -80
       
       - name: Check module metadata
         working-directory: kernel
