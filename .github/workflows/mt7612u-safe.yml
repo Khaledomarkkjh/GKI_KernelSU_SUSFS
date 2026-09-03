@@ -1,4 +1,4 @@
-name: Build MT7612U
+فname: Build MT7612U
 
 on:
   workflow_dispatch:
@@ -9,7 +9,6 @@ jobs:
     timeout-minutes: 180
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
