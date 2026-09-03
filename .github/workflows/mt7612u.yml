@@ -170,7 +170,7 @@ jobs:
 
           all modules:
           	$(MAKE) -C $(KDIR) \
-          		M=$(CURDIR)/mt76 \
+          		M=$(M) \
           		CONFIG_MT76_CORE=m \
           		CONFIG_MT76_USB=m \
           		CONFIG_MT76X02_LIB=m \
@@ -187,6 +187,7 @@ jobs:
 
           echo "=== EXTERNAL WRAPPER ==="
           cat "$EXT/Makefile"
+
 
       - name: Preflight MT76 OOT tree
         working-directory: kernel
