@@ -95,7 +95,6 @@ jobs:
           EOF
 
           test -s arch/arm64/configs/mt7612u_defconfig
-          echo "=== MT7612U CONFIG ==="
           cat arch/arm64/configs/mt7612u_defconfig
 
           echo "=== EXPORT DEFCONFIG TO BAZEL ==="
@@ -104,7 +103,6 @@ jobs:
           fi
           grep -qF 'exports_files(["arch/arm64/configs/mt7612u_defconfig"])' BUILD.bazel
 
-          echo "=== REMOVE OLD EXTERNAL MODULE BUILD FILE (if any) ==="
           rm -f drivers/net/wireless/mediatek/mt76/BUILD.bazel
 
           echo "=== VERIFY kernel_aarch64 EXISTS EXACTLY ONCE ==="
@@ -114,9 +112,10 @@ jobs:
             exit 1
           fi
 
-          echo "=== PATCH kernel_aarch64 (STRICT) ==="
+          echo "=== PATCH kernel_aarch64 (STRICT - using module_implicit_outs) ==="
           python3 <<'PY'
           from pathlib import Path
+          import re
 
           p = Path("BUILD.bazel")
           s = p.read_text()
@@ -126,13 +125,11 @@ jobs:
               raise SystemExit(f"ERROR: expected exactly one kernel_aarch64, found {s.count(anchor)}")
 
           pos = s.index(anchor)
-
-          # Find the start of this common_kernel( call
           start = s.rfind("common_kernel(", 0, pos)
           if start < 0:
               raise SystemExit("ERROR: kernel_aarch64 is not inside common_kernel()")
 
-          # Find the matching closing parenthesis (balanced, ignoring strings)
+          # Find balanced end of common_kernel(
           depth = 0
           end = None
           in_string = False
@@ -158,34 +155,33 @@ jobs:
                       break
 
           if end is None:
-              raise SystemExit("ERROR: could not find end of common_kernel() for kernel_aarch64")
+              raise SystemExit("ERROR: could not find end of common_kernel()")
 
           block = s[start:end]
 
-          if 'name = "kernel_aarch64",' not in block:
-              raise SystemExit("ERROR: block detection failed")
-
-          # Strict safety checks — refuse to touch if already modified or unexpected
+          # Safety checks
           if "module_outs =" in block:
-              raise SystemExit(
-                  "ERROR: kernel_aarch64 already contains module_outs. "
-                  "Refusing to overwrite unexpected existing list."
-              )
+              raise SystemExit("ERROR: unexpected module_outs already present")
           if "pre_defconfig_fragments" in block:
-              raise SystemExit(
-                  "ERROR: kernel_aarch64 already contains pre_defconfig_fragments."
-              )
+              raise SystemExit("ERROR: pre_defconfig_fragments already present")
           if 'check_defconfig = "disabled"' in block:
-              raise SystemExit(
-                  "ERROR: kernel_aarch64 already contains check_defconfig = \"disabled\"."
-              )
+              raise SystemExit("ERROR: check_defconfig already disabled")
 
+          # 1. Insert check_defconfig + pre_defconfig_fragments after the name line
           insertion = '''name = "kernel_aarch64",
               check_defconfig = "disabled",
               pre_defconfig_fragments = [
                   "arch/arm64/configs/mt7612u_defconfig",
-              ],
-              module_outs = [
+              ],'''
+
+          new_block = block.replace('name = "kernel_aarch64",', insertion, 1)
+
+          # 2. Extend module_implicit_outs
+          # Original looks like:
+          # module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64"),
+          old_implicit = 'module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64"),'
+
+          new_implicit = '''module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64") + [
                   "drivers/net/wireless/mediatek/mt76/mt76.ko",
                   "drivers/net/wireless/mediatek/mt76/mt76-usb.ko",
                   "drivers/net/wireless/mediatek/mt76/mt76x02-lib.ko",
@@ -194,7 +190,11 @@ jobs:
                   "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2u.ko",
               ],'''
 
-          new_block = block.replace('name = "kernel_aarch64",', insertion, 1)
+          if old_implicit not in new_block:
+              raise SystemExit("ERROR: could not find the expected module_implicit_outs line")
+
+          new_block = new_block.replace(old_implicit, new_implicit, 1)
+
           if new_block == block:
               raise SystemExit("ERROR: patch made no changes")
 
@@ -204,7 +204,7 @@ jobs:
           PY
 
           echo "=== VERIFY PATCH ==="
-          grep -n -A45 -B2 'name = "kernel_aarch64"' BUILD.bazel
+          grep -n -A55 -B2 'name = "kernel_aarch64"' BUILD.bazel
 
           echo "=== VERIFY ALL SIX MODULE OUTPUTS ==="
           for module in \
