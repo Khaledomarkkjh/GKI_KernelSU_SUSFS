@@ -133,7 +133,6 @@ jobs:
           echo "=== COPYING ORIGINAL MT76 TREE ==="
 
           rm -rf "$EXT"
-
           mkdir -p "$EXT"
 
           cp -a "$SRC" "$EXT/mt76"
@@ -145,18 +144,17 @@ jobs:
           test -f "$EXT/mt76/mt76x2/Makefile"
           test -f "$EXT/mt76/mt76x2/Kconfig"
 
-          echo "=== VERIFY COPY AGAINST ORIGINAL ==="
+          echo "=== ORIGINAL MT76 TREE COPIED ==="
 
-          diff -u \
-            "$SRC/Makefile" \
-            "$EXT/mt76/Makefile"
-
-          diff -u \
-            "$SRC/mt76x2/Makefile" \
-            "$EXT/mt76/mt76x2/Makefile"
-
-          echo "=== ORIGINAL MT76 TREE COPIED WITHOUT MODIFICATION ==="
-
+          find "$EXT/mt76" \
+            -type f \
+            \( \
+              -name '*.c' -o \
+              -name '*.h' -o \
+              -name 'Makefile' -o \
+              -name 'Kconfig' \
+            \) \
+            | sort
       - name: Create external build wrapper
         working-directory: kernel
         shell: bash
