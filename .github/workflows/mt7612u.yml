@@ -133,28 +133,29 @@ jobs:
           echo "=== COPYING ORIGINAL MT76 TREE ==="
 
           rm -rf "$EXT"
+
           mkdir -p "$EXT"
 
-          cp -a "$SRC/." "$EXT/"
+          cp -a "$SRC" "$EXT/mt76"
 
           echo "=== VERIFY COPIED TREE ==="
 
-          test -f "$EXT/Makefile"
-          test -f "$EXT/Kconfig"
-          test -f "$EXT/mt76x2/Makefile"
-          test -f "$EXT/mt76x2/Kconfig"
+          test -f "$EXT/mt76/Makefile"
+          test -f "$EXT/mt76/Kconfig"
+          test -f "$EXT/mt76/mt76x2/Makefile"
+          test -f "$EXT/mt76/mt76x2/Kconfig"
 
-          echo "=== ORIGINAL MT76 TREE COPIED ==="
+          echo "=== VERIFY COPY AGAINST ORIGINAL ==="
 
-          find "$EXT" \
-            -type f \
-            \( \
-              -name '*.c' -o \
-              -name '*.h' -o \
-              -name 'Makefile' -o \
-              -name 'Kconfig' \
-            \) \
-            | sort
+          diff -u \
+            "$SRC/Makefile" \
+            "$EXT/mt76/Makefile"
+
+          diff -u \
+            "$SRC/mt76x2/Makefile" \
+            "$EXT/mt76/mt76x2/Makefile"
+
+          echo "=== ORIGINAL MT76 TREE COPIED WITHOUT MODIFICATION ==="
 
       - name: Create external build wrapper
         working-directory: kernel
@@ -198,18 +199,10 @@ jobs:
           echo "=== PRE-FLIGHT ==="
 
           test -f mt76_ext/Makefile
-
-          test -f \
-            mt76_ext/mt76/Makefile
-
-          test -f \
-            mt76_ext/mt76/mt76x2/Makefile
-
-          test -f \
-            mt76_ext/mt76/Kconfig
-
-          test -f \
-            mt76_ext/mt76/mt76x2/Kconfig
+          test -f mt76_ext/mt76/Makefile
+          test -f mt76_ext/mt76/Kconfig
+          test -f mt76_ext/mt76/mt76x2/Makefile
+          test -f mt76_ext/mt76/mt76x2/Kconfig
 
           echo "=== REQUIRED CONFIG SYMBOLS ==="
 
