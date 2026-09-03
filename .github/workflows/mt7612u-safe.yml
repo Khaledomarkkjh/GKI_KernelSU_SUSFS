@@ -1,4 +1,4 @@
-فname: Build MT7612U
+name: Build MT7612U
 
 on:
   workflow_dispatch:
