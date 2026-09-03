@@ -120,32 +120,6 @@ jobs:
         run: |
           set -eux
 
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("common/BUILD.bazel")
-          s = p.read_text()
-
-          old = 'module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64"),'
-
-          new = '''module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64") + [
-              "drivers/net/wireless/mediatek/mt76/mt76.ko",
-              "drivers/net/wireless/mediatek/mt76/mt76-usb.ko",
-              "drivers/net/wireless/mediatek/mt76/mt76x02-lib.ko",
-              "drivers/net/wireless/mediatek/mt76/mt76x02-usb.ko",
-              "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2-common.ko",
-              "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2u.ko",
-          ],'''
-
-          if old not in s:
-              raise SystemExit("ERROR: module_implicit_outs line not found")
-
-          p.write_text(s.replace(old, new, 1))
-
-          print("=== MT76 OUTPUTS DECLARED ===")
-          print(new)
-          PY
-
           sed -i \
             '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' \
             common/BUILD.bazel
