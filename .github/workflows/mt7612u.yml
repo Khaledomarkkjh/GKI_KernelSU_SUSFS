@@ -98,7 +98,6 @@ jobs:
           kernel_module(
               name = "mt76",
               kernel_build = "//common:kernel_aarch64",
-              makefile = "Makefile",
               srcs = glob([
                   "**/*.c",
                   "**/*.h",
