@@ -236,7 +236,7 @@ jobs:
           cat mt76-files.txt
     
 
-      -       - name: Collect MT76 modules
+      - name: Collect MT76 modules
         working-directory: kernel
         shell: bash
         run: |
