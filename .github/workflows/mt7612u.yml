@@ -70,7 +70,7 @@ jobs:
         run: |
           set -eux
 
-          cat > mt7612u_defconfig <<'EOF'
+          cat > arch/arm64/configs/mt7612u_defconfig <<'EOF'
           CONFIG_CFG80211=m
           CONFIG_MAC80211=m
           CONFIG_WLAN_VENDOR_MEDIATEK=y
@@ -82,8 +82,8 @@ jobs:
           CONFIG_MT76X2U=m
           EOF
 
-          echo "=== MT7612U FRAGMENT ==="
-          cat mt7612u_defconfig
+          echo "=== MT7612U DECONFIG FRAGMENT ==="
+          cat arch/arm64/configs/mt7612u_defconfig
 
 
           
@@ -92,9 +92,6 @@ jobs:
         shell: bash
         run: |
           set -eux
-
-          grep -q 'mt7612u_defconfig' common/BUILD.bazel || \
-            sed -i '/package(/a\exports_files(["mt7612u_defconfig"])' common/BUILD.bazel
 
           sed -i \
             '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' \
@@ -110,7 +107,7 @@ jobs:
             --preserve_kbuild_output \
             --verbose_failures \
             --subcommands \
-            --defconfig_fragment=//common:mt7612u_defconfig \
+            --defconfig_fragment=//common:arch/arm64/configs/mt7612u_defconfig \
             --output_groups=modules_staging_archive \
             //common:kernel_aarch64
 
