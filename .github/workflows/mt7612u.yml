@@ -86,35 +86,115 @@ jobs:
 
           echo "=== MT76 SOURCE VERIFIED ==="
       
-      - name: Inspect exact Kleaf kernel_module API
+      - name: Create MT76 Bazel target
+        working-directory: kernel/common
+        shell: bash
+        run: |
+          set -eux
+
+          cat > drivers/net/wireless/mediatek/mt76/BUILD.bazel <<'EOF'
+          load("//build/kernel/kleaf:kernel.bzl", "kernel_module")
+
+          kernel_module(
+              name = "mt76",
+              kernel_build = "//common:kernel_aarch64",
+              makefile = "Makefile",
+              srcs = glob([
+                  "**/*.c",
+                  "**/*.h",
+                  "**/Makefile",
+                  "**/Kconfig",
+                  "**/Kbuild",
+              ]),
+              outs = [
+                  "mt76.ko",
+                  "mt76-usb.ko",
+                  "mt76x02-lib.ko",
+                  "mt76x02-usb.ko",
+                  "mt76x2/mt76x2-common.ko",
+                  "mt76x2/mt76x2u.ko",
+              ],
+          )
+          EOF
+
+          echo "=== MT76 BUILD.BAZEL ==="
+          cat drivers/net/wireless/mediatek/mt76/BUILD.bazel
+
+          echo "=== BAZEL PACKAGE CHECK ==="
+          tools/bazel query \
+            //common/drivers/net/wireless/mediatek/mt76:mt76
+
+      - name: Build MT76
         working-directory: kernel
         shell: bash
         run: |
           set -eux
 
-          echo "=== EXACT kernel_module SIGNATURE ==="
+          echo "=== BUILDING MT76 EXTERNAL MODULE ==="
 
-          sed -n '65,115p' \
-            build/kernel/kleaf/impl/kernel_module.bzl
+          tools/bazel build \
+            --config=fast \
+            --config=stamp \
+            --disk_cache=/home/runner/.cache/bazel \
+            --allow_undeclared_modules \
+            --preserve_kbuild_output \
+            --verbose_failures \
+            --subcommands \
+            //common/drivers/net/wireless/mediatek/mt76:mt76
 
-          echo "=== EXACT kernel_module ATTRS ==="
+          echo "=== MT76 BUILD FINISHED ==="
 
-          grep -nE \
-            '"(deps|kernel_module_deps|srcs|makefile|kernel_build|outs)"' \
-            build/kernel/kleaf/impl/kernel_module.bzl \
-            | head -80
-      
-      - name: Check module metadata
+          echo "=== MT76 OUTPUTS ==="
+          find bazel-bin \
+            -type f \
+            \( \
+              -name 'mt76.ko' -o \
+              -name 'mt76-usb.ko' -o \
+              -name 'mt76x02-lib.ko' -o \
+              -name 'mt76x02-usb.ko' -o \
+              -name 'mt76x2-common.ko' -o \
+              -name 'mt76x2u.ko' \
+            \) \
+            -print
+
+      - name: Collect MT76 modules
         working-directory: kernel
         shell: bash
         run: |
           set -eux
 
+          rm -rf mt76-artifact
+          mkdir -p mt76-artifact
+
+          for name in \
+            mt76.ko \
+            mt76-usb.ko \
+            mt76x02-lib.ko \
+            mt76x02-usb.ko \
+            mt76x2-common.ko \
+            mt76x2u.ko
+          do
+            src="$(find bazel-bin \
+              -type f \
+              -name "$name" \
+              -print -quit)"
+
+            if [ -z "$src" ]; then
+              echo "ERROR: REQUIRED MODULE NOT FOUND: $name"
+              exit 1
+            fi
+
+            echo "COPYING: $src"
+            cp -L "$src" "mt76-artifact/$name"
+          done
+
+          echo "=== ALL SIX MT76 MODULES ==="
+          ls -lh mt76-artifact/
+
+          echo "=== MODULE METADATA ==="
           for f in mt76-artifact/*.ko; do
             echo "================================"
             echo "$f"
-            echo "================================"
-
             strings "$f" | \
               grep -E '^(name=|depends=|vermagic=)' || true
           done
