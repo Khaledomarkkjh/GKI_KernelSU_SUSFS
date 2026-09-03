@@ -154,10 +154,14 @@ jobs:
 
           echo "=== FINDING MODULE STAGING ARCHIVE ==="
 
-          ARCHIVE="$(find bazel-bin/common/kernel_aarch64 \
+                    ARCHIVE="$(find bazel-bin/common/kernel_aarch64 \
             -type f \
-            -name 'module_staging_dir.tar.gz' \
+            \( \
+              -name 'modules_staging_dir.tar.gz' -o \
+              -name 'module_staging_dir.tar.gz' \
+            \) \
             -print -quit)"
+
 
           if [ -z "$ARCHIVE" ]; then
             echo "ERROR: module_staging_dir.tar.gz was not produced"
