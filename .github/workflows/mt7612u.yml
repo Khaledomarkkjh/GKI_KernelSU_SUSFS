@@ -49,24 +49,13 @@ jobs:
         run: |
           set -euxo pipefail
 
-          if [ ! -d common/.git ]; then
-            rm -rf common
+          rm -rf common
 
-            git clone \
-              --depth=1 \
-              --branch android16-6.12-2025-07_r7 \
-              https://android.googlesource.com/kernel/common \
-              common
-          else
-            cd common
-
-            git fetch \
-              --depth=1 \
-              https://android.googlesource.com/kernel/common \
-              android16-6.12-2025-07_r7
-
-            git checkout -f --detach FETCH_HEAD
-          fi
+          git clone \
+            --depth=1 \
+            --branch android16-6.12-2025-07_r7 \
+            https://android.googlesource.com/kernel/common \
+            common
 
           cd common
 
@@ -75,7 +64,8 @@ jobs:
           echo "=== SOURCE COMMIT ==="
           echo "$COMMIT"
 
-          test "$COMMIT" = "6e872b4863d6dd892490c32d973db1a9df8d3710"
+          test "$COMMIT" = \
+            "6e872b4863d6dd892490c32d973db1a9df8d3710"
 
           echo "=== EXACT ANDROID R7 SOURCE VERIFIED ==="
 
@@ -88,74 +78,67 @@ jobs:
           SRC="common/drivers/net/wireless/mediatek/mt76"
           EXT="mt76_ext"
 
-          echo "=== VERIFY MT76 SOURCE ==="
+          echo "=========================================="
+          echo " VERIFYING MT76 SOURCE"
+          echo "=========================================="
 
           test -d "$SRC"
           test -f "$SRC/Makefile"
           test -f "$SRC/Kconfig"
-          test -f "$SRC/mt76x2/Makefile"
-          test -f "$SRC/mt76x2/Kconfig"
 
           echo "=== ORIGINAL MT76 MAKEFILE ==="
           cat "$SRC/Makefile"
 
-          echo "=== ORIGINAL MT76X2 MAKEFILE ==="
-          cat "$SRC/mt76x2/Makefile"
+          echo "=== MT76 TREE ==="
+          find "$SRC" \
+            -maxdepth 2 \
+            -type f \
+            \( \
+              -name '*.c' -o \
+              -name '*.h' -o \
+              -name 'Kbuild' -o \
+              -name 'Kconfig' -o \
+              -name 'Makefile' \
+            \) \
+            | sort
 
-          echo "=== COPYING COMPLETE MT76 TREE ==="
+          echo "=========================================="
+          echo " COPYING MT76 TREE"
+          echo "=========================================="
 
           rm -rf "$EXT"
           mkdir -p "$EXT"
 
           cp -a "$SRC/." "$EXT/"
 
-          echo "=== VERIFY COPIED TREE ==="
-
           test -f "$EXT/Makefile"
           test -f "$EXT/Kconfig"
-          test -f "$EXT/mt76x2/Makefile"
-          test -f "$EXT/mt76x2/Kconfig"
 
-          echo "=== CREATE OOT WRAPPER ==="
+          echo "=== MT76 COPY VERIFIED ==="
 
-          cat > "$EXT/Makefile" <<'EOF'
-          KDIR ?= $(KERNEL_SRC)
+          echo "=== SEARCH MT76X2U REFERENCES ==="
 
-          .PHONY: all modules clean
+          grep -RniE \
+            'MT76X2U|mt76x2u|mt76x2-common|MT76X2_COMMON' \
+            "$EXT" \
+            --include='Makefile' \
+            --include='Kbuild' \
+            --include='Kconfig' \
+            | head -100 || true
 
-          all modules:
-          	$(MAKE) -C $(KDIR) M=$(CURDIR) modules
+          echo "=== SEARCH MT7612U FIRMWARE ==="
 
-          clean:
-          	$(MAKE) -C $(KDIR) M=$(CURDIR) clean
-          EOF
+          grep -RniE \
+            'mt7662(_rom_patch)?\.bin' \
+            "$EXT" \
+            --include='*.c' \
+            --include='*.h' \
+            --include='Makefile' \
+            --include='Kbuild' \
+            --include='Kconfig' \
+            | head -100 || true
 
-          echo "=== CREATE OOT KBUILD ==="
-
-          cat > "$EXT/Kbuild" <<'EOF'
-          # MT76 OOT bridge.
-          #
-          # The MT76 source tree is copied from the exact Android r7
-          # kernel source. The actual module object lists are supplied
-          # by the original MT76 build files.
-
-          CONFIG_MT76_CORE := m
-          CONFIG_MT76_USB := m
-          CONFIG_MT76X02_LIB := m
-          CONFIG_MT76X02_USB := m
-          CONFIG_MT76X2_COMMON := m
-          CONFIG_MT76X2U := m
-
-          include $(src)/mt76/Kbuild
-          include $(src)/mt76x02/Kbuild
-          include $(src)/mt76x2/Kbuild
-          EOF
-
-          echo "=== OOT MAKEFILE ==="
-          cat "$EXT/Makefile"
-
-          echo "=== OOT KBUILD ==="
-          cat "$EXT/Kbuild"
+          echo "=== MT76 OOT SOURCE READY ==="
 
       - name: Preflight MT76 OOT tree
         working-directory: kernel
@@ -163,43 +146,41 @@ jobs:
         run: |
           set -euxo pipefail
 
-          echo "=== PRE-FLIGHT ==="
+          echo "=========================================="
+          echo " MT76 PRE-FLIGHT"
+          echo "=========================================="
 
+          test -d mt76_ext
           test -f mt76_ext/Makefile
-          test -f mt76_ext/Kbuild
+          test -f mt76_ext/Kconfig
 
-          echo "=== REQUIRED CONFIG SYMBOLS ==="
+          echo "=== MAKEFILE ==="
+          sed -n '1,240p' mt76_ext/Makefile
 
-          for symbol in \
-            CONFIG_MT76_CORE \
-            CONFIG_MT76_USB \
-            CONFIG_MT76X02_LIB \
-            CONFIG_MT76X02_USB \
-            CONFIG_MT76X2_COMMON \
-            CONFIG_MT76X2U
-          do
-            echo "CHECK: $symbol"
-            grep -R "$symbol" mt76_ext \
-              --include='Kconfig' \
-              --include='Makefile' \
-              --include='Kbuild' \
-              | head -20 || true
-          done
+          echo "=== KCONFIG ==="
+          sed -n '1,240p' mt76_ext/Kconfig
 
-          echo "=== REQUIRED SOURCE FILES ==="
-
+          echo "=== TOP LEVEL ==="
           find mt76_ext \
-            -type f \
-            \( -name '*.c' -o -name '*.h' \) \
-            | sort \
-            | wc -l
-
-          echo "=== MT76X2U SOURCE ==="
-
-          find mt76_ext/mt76x2 \
             -maxdepth 1 \
             -type f \
             | sort
+
+          echo "=== SUBDIRECTORIES ==="
+          find mt76_ext \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            | sort
+
+          echo "=== MT76X2 DIRECTORY ==="
+
+          if [ -d mt76_ext/mt76x2 ]; then
+            find mt76_ext/mt76x2 \
+              -maxdepth 1 \
+              -type f \
+              | sort
+          fi
 
           echo "=== PRE-FLIGHT COMPLETE ==="
 
@@ -214,9 +195,10 @@ jobs:
 
           kernel_module(
               name = "mt76_ext_module",
+
               kernel_build = "//common:kernel_aarch64",
 
-              makefile = ["//mt76_ext:Makefile"],
+              makefile = "//mt76_ext:Makefile",
 
               srcs = glob([
                   "**/*.c",
@@ -231,7 +213,7 @@ jobs:
                   "mt76-usb.ko",
                   "mt76x02-lib.ko",
                   "mt76x02-usb.ko",
-                  "mt76x2-common.ko",
+                  "mt76x2.ko",
                   "mt76x2u.ko",
               ],
 
@@ -239,11 +221,10 @@ jobs:
           )
           EOF
 
-          echo "=== MT76 BUILD.BAZEL ==="
+          echo "=== BUILD.BAZEL ==="
           cat mt76_ext/BUILD.bazel
 
           echo "=== BAZEL QUERY ==="
-
           tools/bazel query //mt76_ext:mt76_ext_module
 
       - name: Build MT76 OOT
@@ -253,7 +234,7 @@ jobs:
           set -euxo pipefail
 
           echo "=========================================="
-          echo " BUILDING MT76 OOT"
+          echo " BUILDING MT7612U / MT76 OOT"
           echo "=========================================="
 
           tools/bazel build \
@@ -267,6 +248,7 @@ jobs:
             --subcommands \
             //mt76_ext:mt76_ext_module
 
+          echo
           echo "=== OOT BUILD SUCCESSFUL ==="
 
       - name: Locate MT76 modules
@@ -275,19 +257,14 @@ jobs:
         run: |
           set -euxo pipefail
 
-          echo "=== SEARCHING FOR MODULES ==="
+          echo "=========================================="
+          echo " SEARCHING FOR MT76 MODULES"
+          echo "=========================================="
 
           find bazel-bin bazel-out \
             -type f \
-            \( \
-              -name 'mt76.ko' -o \
-              -name 'mt76-usb.ko' -o \
-              -name 'mt76x02-lib.ko' -o \
-              -name 'mt76x02-usb.ko' -o \
-              -name 'mt76x2-common.ko' -o \
-              -name 'mt76x2u.ko' \
-            \) \
-            -print
+            -name '*.ko' \
+            | sort
 
       - name: Collect MT76 modules
         working-directory: kernel
@@ -298,42 +275,60 @@ jobs:
           rm -rf mt76-artifact
           mkdir -p mt76-artifact
 
-          for name in \
-            mt76.ko \
-            mt76-usb.ko \
-            mt76x02-lib.ko \
-            mt76x02-usb.ko \
-            mt76x2-common.ko \
-            mt76x2u.ko
-          do
-            src="$(
-              find bazel-bin bazel-out \
-                -type f \
-                -name "$name" \
-                -print -quit 2>/dev/null || true
-            )"
+          echo "=========================================="
+          echo " COLLECTING MT76 MODULES"
+          echo "=========================================="
 
-            if [ -z "$src" ]; then
-              echo "ERROR: REQUIRED MODULE NOT FOUND: $name"
+          found=0
 
-              echo "=== AVAILABLE KO FILES ==="
+          while IFS= read -r src; do
+            name="$(basename "$src")"
 
-              find bazel-bin bazel-out \
-                -type f \
-                -name '*.ko' \
-                | sort \
-                | head -200 || true
+            case "$name" in
+              mt76.ko|\
+              mt76-usb.ko|\
+              mt76x02-lib.ko|\
+              mt76x02-usb.ko|\
+              mt76x2.ko|\
+              mt76x2u.ko)
 
-              exit 1
-            fi
+                echo "FOUND: $src"
 
-            echo "FOUND: $src"
+                cp -L "$src" "mt76-artifact/$name"
+                found=$((found + 1))
+                ;;
+            esac
 
-            cp -L "$src" "mt76-artifact/$name"
-          done
+          done < <(
+            find bazel-bin bazel-out \
+              -type f \
+              -name '*.ko' \
+              -print \
+              2>/dev/null \
+              | sort
+          )
 
-          echo "=== SIX MODULES ==="
+          echo
+          echo "=== COLLECTED MODULES ==="
+
           ls -lh mt76-artifact/
+
+          if [ "$found" -eq 0 ]; then
+            echo "ERROR: NO MT76 MODULES WERE PRODUCED"
+
+            echo
+            echo "=== ALL KO FILES ==="
+
+            find bazel-bin bazel-out \
+              -type f \
+              -name '*.ko' \
+              | sort || true
+
+            exit 1
+          fi
+
+          echo
+          echo "=== MODULE COUNT: $found ==="
 
       - name: Deep inspection
         working-directory: kernel
@@ -346,6 +341,7 @@ jobs:
           echo "=========================================="
 
           for f in mt76-artifact/*.ko; do
+
             echo
             echo "------------------------------------------"
             echo "FILE: $f"
@@ -379,6 +375,7 @@ jobs:
             else
               echo "__versions: ABSENT"
             fi
+
           done
 
       - name: Verify MT7612U firmware references
@@ -387,7 +384,9 @@ jobs:
         run: |
           set -euxo pipefail
 
-          echo "=== FIRMWARE REFERENCES ==="
+          echo "=========================================="
+          echo " FIRMWARE REFERENCES"
+          echo "=========================================="
 
           grep -RhoE \
             'mt7662(_rom_patch)?\.bin' \
