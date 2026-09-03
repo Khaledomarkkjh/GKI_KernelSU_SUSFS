@@ -63,144 +63,51 @@ jobs:
 
           echo "=== EXACT ANDROID R7 SOURCE VERIFIED ==="
 
-
-      - name: Create MT7612U defconfig fragment
+      - name: Prepare MT76 external module
         working-directory: kernel/common
         shell: bash
         run: |
           set -eux
 
-          cat > arch/arm64/configs/mt7612u_defconfig <<'EOF'
-          CONFIG_CFG80211=m
-          CONFIG_MAC80211=m
-          CONFIG_WLAN_VENDOR_MEDIATEK=y
-          CONFIG_MT76_CORE=m
-          CONFIG_MT76_USB=m
-          CONFIG_MT76X02_LIB=m
-          CONFIG_MT76X02_USB=m
-          CONFIG_MT76X2_COMMON=m
-          CONFIG_MT76X2U=m
-          EOF
+          echo "=== MT76 SOURCE CHECK ==="
 
-          echo "=== MT7612U DECONFIG FRAGMENT ==="
-          cat arch/arm64/configs/mt7612u_defconfig
+          test -f drivers/net/wireless/mediatek/mt76/Makefile
+          test -f drivers/net/wireless/mediatek/mt76/Kconfig
+          test -f drivers/net/wireless/mediatek/mt76/mt76.h
+          test -f drivers/net/wireless/mediatek/mt76/mt76x2/Makefile
 
+          echo "=== MT76X2U CONFIG ==="
+          grep -A8 -B2 'config MT76x2U' \
+            drivers/net/wireless/mediatek/mt76/mt76x2/Kconfig
 
-          
-      - name: Build GKI and modules
+          echo "=== MT76 MAKEFILE ==="
+          grep -E 'mt76x2-common|mt76x2u' \
+            drivers/net/wireless/mediatek/mt76/mt76x2/Makefile
+
+          echo "=== MT76 SOURCE VERIFIED ==="
+      
+      - name: Inspect Kleaf kernel_module API
         working-directory: kernel
         shell: bash
         run: |
           set -eux
 
-          sed -i \
-            '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' \
-            common/BUILD.bazel
+          echo "=== KLEAF VERSION / KERNEL MODULE API ==="
 
-          echo "=== STARTING BAZEL KERNEL BUILD ==="
+          grep -R -n \
+            'def kernel_module' \
+            build/kernel/kleaf \
+            | head -20
 
-          tools/bazel build \
-            --config=fast \
-            --config=stamp \
-            --disk_cache=/home/runner/.cache/bazel \
-            --allow_undeclared_modules \
-            --preserve_kbuild_output \
-            --verbose_failures \
-            --subcommands \
-            --defconfig_fragment=//common:arch/arm64/configs/mt7612u_defconfig \
-            --output_groups=modules_staging_archive \
-            //common:kernel_aarch64
+          echo "=== KERNEL MODULE RULE LOAD ==="
 
-          echo "=== BAZEL BUILD FINISHED ==="
-          
-      - name: Collect MT76 modules
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -eux
-
-          rm -rf mt76-artifact
-          rm -rf mt76-staging
-
-          mkdir -p mt76-artifact
-          mkdir -p mt76-staging
-
-          echo "=== FINDING MODULE STAGING ARCHIVE ==="
-
-                              ARCHIVE="$(find bazel-bin/common/kernel_aarch64 \
-            -type f \
-            -name 'modules_staging_dir.tar.gz' \
-            -print -quit)"
-    
-
-
-          if [ -z "$ARCHIVE" ]; then
-            echo "ERROR: module_staging_dir.tar.gz was not produced"
-
-            echo "=== AVAILABLE OUTPUTS ==="
-            find bazel-bin/common/kernel_aarch64 \
-              -maxdepth 5 \
-              -type f \
-              -print | head -300
-
-            exit 1
-          fi
-
-          echo "=== ARCHIVE FOUND ==="
-          echo "$ARCHIVE"
-
-          echo "=== EXTRACTING MODULE STAGING ==="
-
-          tar -xzf "$ARCHIVE" -C mt76-staging
-
-          echo "=== SEARCHING FOR MT76 ==="
-
-          find mt76-staging -type f \( \
-            -name 'mt76.ko' -o \
-            -name 'mt76-usb.ko' -o \
-            -name 'mt76x02-lib.ko' -o \
-            -name 'mt76x02-usb.ko' -o \
-            -name 'mt76x2-common.ko' -o \
-            -name 'mt76x2u.ko' \
-          \) -print
-
-          echo "=== COPYING MT76 MODULES ==="
-
-          for name in \
-            mt76.ko \
-            mt76-usb.ko \
-            mt76x02-lib.ko \
-            mt76x02-usb.ko \
-            mt76x2-common.ko \
-            mt76x2u.ko
-          do
-            src="$(find mt76-staging \
-              -type f \
-              -name "$name" \
-              -print -quit)"
-
-            if [ -z "$src" ]; then
-              echo "ERROR: REQUIRED MODULE NOT FOUND: $name"
-              exit 1
-            fi
-
-            echo "COPYING: $src"
-            cp -L "$src" "mt76-artifact/$name"
-          done
-
-          echo "=== COLLECTED MT76 MODULES ==="
-          ls -lh mt76-artifact/
-
-          echo "=== VERIFYING ALL SIX MODULES ==="
-
-          test -s mt76-artifact/mt76.ko
-          test -s mt76-artifact/mt76-usb.ko
-          test -s mt76-artifact/mt76x02-lib.ko
-          test -s mt76-artifact/mt76x02-usb.ko
-          test -s mt76-artifact/mt76x2-common.ko
-          test -s mt76-artifact/mt76x2u.ko
-
-          echo "=== SUCCESS: ALL SIX MT76 MODULES COLLECTED ==="
+          grep -R -n \
+            'kernel_module' \
+            build/kernel/kleaf/BUILD \
+            build/kernel/kleaf/*.bzl \
+            2>/dev/null \
+            | head -50
+      
       - name: Check module metadata
         working-directory: kernel
         shell: bash
