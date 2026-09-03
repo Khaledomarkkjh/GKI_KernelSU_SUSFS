@@ -120,6 +120,32 @@ jobs:
         run: |
           set -eux
 
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("common/BUILD.bazel")
+          s = p.read_text()
+
+          old = 'module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64"),'
+
+          new = '''module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64") + [
+              "drivers/net/wireless/mediatek/mt76/mt76.ko",
+              "drivers/net/wireless/mediatek/mt76/mt76-usb.ko",
+              "drivers/net/wireless/mediatek/mt76/mt76x02-lib.ko",
+              "drivers/net/wireless/mediatek/mt76/mt76x02-usb.ko",
+              "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2-common.ko",
+              "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2u.ko",
+          ],'''
+
+          if old not in s:
+              raise SystemExit("ERROR: module_implicit_outs line not found")
+
+          p.write_text(s.replace(old, new, 1))
+
+          print("=== MT76 OUTPUTS DECLARED ===")
+          print(new)
+          PY
+
           sed -i \
             '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' \
             common/BUILD.bazel
@@ -127,14 +153,15 @@ jobs:
           echo "=== STARTING BAZEL KERNEL BUILD ==="
 
           tools/bazel build \
-          --config=fast \
-          --config=stamp \
-          --disk_cache=/home/runner/.cache/bazel \
-          --allow_undeclared_modules \
-          --preserve_kbuild_output \
+            --config=fast \
+            --config=stamp \
+            --disk_cache=/home/runner/.cache/bazel \
+            --allow_undeclared_modules \
+            --preserve_kbuild_output \
             --verbose_failures \
             --subcommands \
-          //common:kernel_aarch64
+            //common:kernel_aarch64
+
           echo "=== BAZEL BUILD FINISHED ==="
 
       - name: Find MT76 modules
@@ -171,20 +198,43 @@ jobs:
           rm -rf mt76-artifact
           mkdir -p mt76-artifact
 
-          echo "=== COLLECTING MT76 MODULES ==="
+          echo "=== SEARCHING DECLARED MT76 OUTPUTS ==="
 
-          STAGING_OUT="bazel-out/k8-fastbuild/bin/common/kernel_aarch64/staging/lib/modules"
+          KERNEL_OUT="bazel-bin/common/kernel_aarch64"
 
-          test -d "$STAGING_OUT"
+          test -d "$KERNEL_OUT"
 
-          find "$STAGING_OUT" -type f \( \
+          echo "=== MT76 OUTPUTS ==="
+
+          find "$KERNEL_OUT" -type f \( \
             -name 'mt76.ko' -o \
             -name 'mt76-usb.ko' -o \
             -name 'mt76x02-lib.ko' -o \
             -name 'mt76x02-usb.ko' -o \
             -name 'mt76x2-common.ko' -o \
             -name 'mt76x2u.ko' \
-          \) -exec cp -L {} mt76-artifact/ \;
+          \) -print | tee mt76-found.txt
+
+          echo "=== COPYING MT76 MODULES ==="
+
+          for name in \
+            mt76.ko \
+            mt76-usb.ko \
+            mt76x02-lib.ko \
+            mt76x02-usb.ko \
+            mt76x2-common.ko \
+            mt76x2u.ko
+          do
+            src="$(find "$KERNEL_OUT" -type f -name "$name" -print -quit)"
+
+            if [ -z "$src" ]; then
+              echo "ERROR: missing $name"
+              exit 1
+            fi
+
+            echo "COPY: $src"
+            cp -L "$src" mt76-artifact/
+          done
 
           echo "=== COLLECTED MODULES ==="
           ls -lh mt76-artifact/
