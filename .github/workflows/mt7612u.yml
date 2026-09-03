@@ -64,61 +64,37 @@ jobs:
           echo "=== EXACT ANDROID R7 SOURCE VERIFIED ==="
 
 
-      - name: Enable MT7612U
+      - name: Create MT7612U defconfig fragment
         working-directory: kernel/common
         shell: bash
         run: |
           set -eux
 
-          DEFCONFIG="arch/arm64/configs/gki_defconfig"
+          cat > mt7612u_defconfig <<'EOF'
+          CONFIG_CFG80211=m
+          CONFIG_MAC80211=m
+          CONFIG_WLAN_VENDOR_MEDIATEK=y
+          CONFIG_MT76_CORE=m
+          CONFIG_MT76_USB=m
+          CONFIG_MT76X02_LIB=m
+          CONFIG_MT76X02_USB=m
+          CONFIG_MT76X2_COMMON=m
+          CONFIG_MT76X2U=m
+          EOF
 
-          for line in \
-            "CONFIG_CFG80211=m" \
-            "CONFIG_MAC80211=m" \
-            "CONFIG_WLAN_VENDOR_MEDIATEK=y" \
-            "CONFIG_MT76_CORE=m" \
-            "CONFIG_MT76_USB=m" \
-            "CONFIG_MT76X02_LIB=m" \
-            "CONFIG_MT76X02_USB=m" \
-            "CONFIG_MT76X2_COMMON=m" \
-            "CONFIG_MT76X2U=m"
-          do
-            key="${line%%=*}"
-            value="${line#*=}"
+          echo "=== MT7612U FRAGMENT ==="
+          cat mt7612u_defconfig
 
-            if grep -q "^${key}=" "$DEFCONFIG"; then
-              sed -i "s/^${key}=.*/${line}/" "$DEFCONFIG"
-            elif grep -q "^# ${key} is not set" "$DEFCONFIG"; then
-              sed -i "s/^# ${key} is not set/${line}/" "$DEFCONFIG"
-            else
-              echo "$line" >> "$DEFCONFIG"
-            fi
-          done
 
-          echo "=== MT7612U CONFIG APPLIED ==="
-
-          grep -E \
-            '^(CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WLAN_VENDOR_MEDIATEK|CONFIG_MT76)' \
-            "$DEFCONFIG"
-
-      - name: Verify MT7612U configuration
-        working-directory: kernel/common
-        shell: bash
-        run: |
-          set -eux
-
-          echo "=== MT76 CONFIGURATION ==="
-
-          grep -E \
-            '^(CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WLAN_VENDOR_MEDIATEK|CONFIG_MT76)' \
-            arch/arm64/configs/gki_defconfig
-            
           
       - name: Build GKI and modules
         working-directory: kernel
         shell: bash
         run: |
           set -eux
+
+          grep -q 'mt7612u_defconfig' common/BUILD.bazel || \
+            sed -i '/package(/a\exports_files(["mt7612u_defconfig"])' common/BUILD.bazel
 
           sed -i \
             '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' \
@@ -134,11 +110,11 @@ jobs:
             --preserve_kbuild_output \
             --verbose_failures \
             --subcommands \
+            --defconfig_fragment=//common:mt7612u_defconfig \
             --output_groups=modules_staging_archive \
             //common:kernel_aarch64
 
           echo "=== BAZEL BUILD FINISHED ==="
-      
           
       - name: Collect MT76 modules
         working-directory: kernel
@@ -154,13 +130,11 @@ jobs:
 
           echo "=== FINDING MODULE STAGING ARCHIVE ==="
 
-                    ARCHIVE="$(find bazel-bin/common/kernel_aarch64 \
+                              ARCHIVE="$(find bazel-bin/common/kernel_aarch64 \
             -type f \
-            \( \
-              -name 'modules_staging_dir.tar.gz' -o \
-              -name 'module_staging_dir.tar.gz' \
-            \) \
+            -name 'modules_staging_dir.tar.gz' \
             -print -quit)"
+    
 
 
           if [ -z "$ARCHIVE" ]; then
