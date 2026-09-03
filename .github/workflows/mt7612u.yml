@@ -134,34 +134,11 @@ jobs:
             --preserve_kbuild_output \
             --verbose_failures \
             --subcommands \
+            --output_groups=modules_staging_archive \
             //common:kernel_aarch64
 
           echo "=== BAZEL BUILD FINISHED ==="
-
-      - name: Find MT76 modules
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -eux
-
-          echo "=== SEARCHING ALL KO FILES ==="
-
-          KBUILD_OUT="bazel-bin/common/kernel_aarch64/kbuild_output"
-
-          test -d "$KBUILD_OUT"
-
-          echo "=== ALL KO FILES ==="
-          find "$KBUILD_OUT" -type f -name '*.ko' -print | tee all-ko-files.txt || true
-
-          echo "=== MT76 NAME MATCHES ==="
-          grep -Ei '/(mt76|mt76x02|mt76x2)[^/]*\.ko$' all-ko-files.txt | tee mt76-files.txt || true
-
-          echo "=== DIRECTORY TREE AROUND MODULES ==="
-          find "$KBUILD_OUT" -type f | grep -E 'modules|kernel' | head -200 || true
-
-          echo "=== COUNTS ==="
-          echo "All KO files: $(wc -l < all-ko-files.txt)"
-          echo "MT76 files: $(wc -l < mt76-files.txt)"
+      
           
       - name: Collect MT76 modules
         working-directory: kernel
@@ -170,24 +147,47 @@ jobs:
           set -eux
 
           rm -rf mt76-artifact
+          rm -rf mt76-staging
+
           mkdir -p mt76-artifact
+          mkdir -p mt76-staging
 
-          echo "=== SEARCHING DECLARED MT76 OUTPUTS ==="
+          echo "=== FINDING MODULE STAGING ARCHIVE ==="
 
-          KERNEL_OUT="bazel-bin/common/kernel_aarch64"
+          ARCHIVE="$(find bazel-bin/common/kernel_aarch64 \
+            -type f \
+            -name 'module_staging_dir.tar.gz' \
+            -print -quit)"
 
-          test -d "$KERNEL_OUT"
+          if [ -z "$ARCHIVE" ]; then
+            echo "ERROR: module_staging_dir.tar.gz was not produced"
 
-          echo "=== MT76 OUTPUTS ==="
+            echo "=== AVAILABLE OUTPUTS ==="
+            find bazel-bin/common/kernel_aarch64 \
+              -maxdepth 5 \
+              -type f \
+              -print | head -300
 
-          find "$KERNEL_OUT" -type f \( \
+            exit 1
+          fi
+
+          echo "=== ARCHIVE FOUND ==="
+          echo "$ARCHIVE"
+
+          echo "=== EXTRACTING MODULE STAGING ==="
+
+          tar -xzf "$ARCHIVE" -C mt76-staging
+
+          echo "=== SEARCHING FOR MT76 ==="
+
+          find mt76-staging -type f \( \
             -name 'mt76.ko' -o \
             -name 'mt76-usb.ko' -o \
             -name 'mt76x02-lib.ko' -o \
             -name 'mt76x02-usb.ko' -o \
             -name 'mt76x2-common.ko' -o \
             -name 'mt76x2u.ko' \
-          \) -print | tee mt76-found.txt
+          \) -print
 
           echo "=== COPYING MT76 MODULES ==="
 
@@ -199,28 +199,33 @@ jobs:
             mt76x2-common.ko \
             mt76x2u.ko
           do
-            src="$(find "$KERNEL_OUT" -type f -name "$name" -print -quit)"
+            src="$(find mt76-staging \
+              -type f \
+              -name "$name" \
+              -print -quit)"
 
             if [ -z "$src" ]; then
-              echo "ERROR: missing $name"
+              echo "ERROR: REQUIRED MODULE NOT FOUND: $name"
               exit 1
             fi
 
-            echo "COPY: $src"
-            cp -L "$src" mt76-artifact/
+            echo "COPYING: $src"
+            cp -L "$src" "mt76-artifact/$name"
           done
 
-          echo "=== COLLECTED MODULES ==="
+          echo "=== COLLECTED MT76 MODULES ==="
           ls -lh mt76-artifact/
 
-          test -f mt76-artifact/mt76.ko
-          test -f mt76-artifact/mt76-usb.ko
-          test -f mt76-artifact/mt76x02-lib.ko
-          test -f mt76-artifact/mt76x02-usb.ko
-          test -f mt76-artifact/mt76x2-common.ko
-          test -f mt76-artifact/mt76x2u.ko
+          echo "=== VERIFYING ALL SIX MODULES ==="
 
-          echo "=== ALL REQUIRED MT76 MODULES COLLECTED ==="
+          test -s mt76-artifact/mt76.ko
+          test -s mt76-artifact/mt76-usb.ko
+          test -s mt76-artifact/mt76x02-lib.ko
+          test -s mt76-artifact/mt76x02-usb.ko
+          test -s mt76-artifact/mt76x2-common.ko
+          test -s mt76-artifact/mt76x2u.ko
+
+          echo "=== SUCCESS: ALL SIX MT76 MODULES COLLECTED ==="
       - name: Check module metadata
         working-directory: kernel
         shell: bash
