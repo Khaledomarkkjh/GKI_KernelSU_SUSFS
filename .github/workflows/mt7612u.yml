@@ -121,7 +121,7 @@ jobs:
           cat drivers/net/wireless/mediatek/mt76/BUILD.bazel
 
           echo "=== BAZEL PACKAGE CHECK ==="
-          tools/bazel query \
+          ../../tools/bazel query \ 
             //common/drivers/net/wireless/mediatek/mt76:mt76
 
       - name: Build MT76
