@@ -1,0 +1,442 @@
+# =============================================================================
+# Build MT7612U Kernel Modules for Android 16 (6.12.30)
+# =============================================================================
+name: Build MT7612U
+
+on:
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        description: 'Enable debug logging (true/false)'
+        required: false
+        default: 'false'
+
+jobs:
+  build-mt7612u:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      KERNEL_VERSION: "android16-6.12"
+      SUBLEVEL: "30"
+      ANDROID_VERSION: "android16"
+      PATCH_LEVEL: "2025-07"
+      EXPECTED_COMMIT: "6e872b4863d6dd892490c32d973db1a9df8d3710"
+      ARTIFACT_NAME: "MT7612U-Wild-6.12.30-r7"
+      DEFCONFIG_FILE: "arch/arm64/configs/gki_defconfig"
+      BAZEL_CACHE_DIR: "/home/runner/.cache/bazel"
+      MODULE_NAMES: |
+        mt76.ko
+        mt76-usb.ko
+        mt76x02-lib.ko
+        mt76x02-usb.ko
+        mt76x2-common.ko
+        mt76x2u.ko
+
+    steps:
+      # -----------------------------------------------------------------
+      # 1. Checkout repository
+      # -----------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Get full history for potential rebases
+
+      # -----------------------------------------------------------------
+      # 2. Setup build environment
+      # -----------------------------------------------------------------
+      - name: Setup Wild build environment
+        uses: ./.github/actions/setup-build-environment
+        with:
+          version: ${{ env.KERNEL_VERSION }}
+          sublevel: ${{ env.SUBLEVEL }}
+        timeout-minutes: 15
+
+      # -----------------------------------------------------------------
+      # 3. Download Android 16 kernel source
+      # -----------------------------------------------------------------
+      - name: Download Android 16 kernel
+        uses: ./.github/actions/download-kernel
+        with:
+          version: ${{ env.KERNEL_VERSION }}
+          android_version: ${{ env.ANDROID_VERSION }}
+          kernel_version: "6.12"
+          os_patch_level: ${{ env.PATCH_LEVEL }}
+        timeout-minutes: 30
+
+      # -----------------------------------------------------------------
+      # 4. Validate environment and print debug info
+      # -----------------------------------------------------------------
+      - name: Environment validation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== SYSTEM INFORMATION ==="
+          uname -a
+          echo "Disk space:"
+          df -h
+          echo "Memory:"
+          free -h
+          echo "CPU count: $(nproc)"
+          echo "Current directory: $(pwd)"
+          echo "Kernel directory contents:"
+          ls -la kernel/ || echo "kernel directory missing"
+          echo "=========================="
+
+          # Check required tools
+          for cmd in git bazel python3 tar find grep sed; do
+            if ! command -v "$cmd" &> /dev/null; then
+              echo "ERROR: Required command '$cmd' not found"
+              exit 1
+            fi
+          done
+
+          echo "All required tools are available."
+
+      # -----------------------------------------------------------------
+      # 5. Fix Kleaf header glob
+      # -----------------------------------------------------------------
+      - name: Fix Kleaf header glob
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE="build/kernel/kleaf/impl/kernel_build.bzl"
+
+          if [ ! -f "$FILE" ]; then
+            echo "ERROR: File not found: $FILE"
+            echo "Current directory contents:"
+            ls -la
+            find . -maxdepth 3 -name "kernel_build.bzl" -print
+            exit 1
+          fi
+
+          echo "=== BEFORE FIX ==="
+          grep -nF -- '-name *.h -print0' "$FILE" || true
+
+          # Use single quotes to prevent shell expansion
+          sed -i "s/-name \*\.h -print0/-name '*.h' -print0/g" "$FILE"
+
+          echo "=== AFTER FIX ==="
+          if grep -nF -- "-name '*.h' -print0" "$FILE"; then
+            echo "SUCCESS: Header glob fixed correctly."
+          else
+            echo "ERROR: Header glob fix failed"
+            exit 1
+          fi
+
+      # -----------------------------------------------------------------
+      # 6. Pin exact Android 16 6.12.30 source
+      # -----------------------------------------------------------------
+      - name: Pin exact Android 16 6.12.30 source
+        working-directory: kernel/common
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -d .git ]; then
+            echo "ERROR: Not a git repository in $(pwd)"
+            exit 1
+          fi
+
+          echo "=== FETCHING SPECIFIC COMMIT ==="
+          git fetch --depth=1 \
+            https://android.googlesource.com/kernel/common \
+            android16-6.12-2025-07_r7
+
+          git checkout --detach FETCH_HEAD
+
+          ACTUAL_COMMIT=$(git rev-parse HEAD)
+          echo "Actual commit: $ACTUAL_COMMIT"
+          echo "Expected commit: ${{ env.EXPECTED_COMMIT }}"
+
+          if [ "$ACTUAL_COMMIT" != "${{ env.EXPECTED_COMMIT }}" ]; then
+            echo "ERROR: Commit hash mismatch!"
+            echo "This may indicate a different source revision."
+            echo "Please verify the android16-6.12-2025-07_r7 tag."
+            exit 1
+          fi
+
+          echo "SUCCESS: Exact commit verified."
+
+      # -----------------------------------------------------------------
+      # 7. Enable MT7612U configuration in defconfig
+      # -----------------------------------------------------------------
+      - name: Enable MT7612U in gki_defconfig
+        working-directory: kernel/common
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DEFCONFIG="${{ env.DEFCONFIG_FILE }}"
+
+          if [ ! -f "$DEFCONFIG" ]; then
+            echo "ERROR: Defconfig file not found: $DEFCONFIG"
+            exit 1
+          fi
+
+          echo "=== BEFORE CONFIG CHANGES ==="
+          grep -E '^(CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WLAN_VENDOR_MEDIATEK|CONFIG_MT76)' \
+            "$DEFCONFIG" || echo "(none found)"
+
+          # Array of config entries to set
+          CONFIG_LINES=(
+            "CONFIG_CFG80211=m"
+            "CONFIG_MAC80211=m"
+            "CONFIG_WLAN_VENDOR_MEDIATEK=y"
+            "CONFIG_MT76_CORE=m"
+            "CONFIG_MT76_USB=m"
+            "CONFIG_MT76X02_LIB=m"
+            "CONFIG_MT76X02_USB=m"
+            "CONFIG_MT76X2_COMMON=m"
+            "CONFIG_MT76X2U=m"
+          )
+
+          for line in "${CONFIG_LINES[@]}"; do
+            key="${line%%=*}"
+            value="${line#*=}"
+
+            if grep -q "^${key}=" "$DEFCONFIG"; then
+              # Replace existing entry
+              sed -i "s/^${key}=.*/${line}/" "$DEFCONFIG"
+              echo "Updated: $key -> $line"
+            elif grep -q "^# ${key} is not set" "$DEFCONFIG"; then
+              # Uncomment and set
+              sed -i "s/^# ${key} is not set/${line}/" "$DEFCONFIG"
+              echo "Uncommented and set: $key -> $line"
+            else
+              # Append if not present
+              echo "$line" >> "$DEFCONFIG"
+              echo "Appended: $line"
+            fi
+          done
+
+          echo "=== AFTER CONFIG CHANGES ==="
+          grep -E '^(CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WLAN_VENDOR_MEDIATEK|CONFIG_MT76)' \
+            "$DEFCONFIG"
+
+          # Verify each required entry is exactly as desired
+          for line in "${CONFIG_LINES[@]}"; do
+            if ! grep -q "^${line}$" "$DEFCONFIG"; then
+              echo "ERROR: Config entry not correctly set: $line"
+              exit 1
+            fi
+          done
+
+          echo "SUCCESS: All MT7612U config entries verified."
+
+      # -----------------------------------------------------------------
+      # 8. Verify MT7612U configuration (redundant but safe)
+      # -----------------------------------------------------------------
+      - name: Verify MT7612U configuration
+        working-directory: kernel/common
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== FINAL CONFIG VERIFICATION ==="
+          grep -E \
+            '^(CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WLAN_VENDOR_MEDIATEK|CONFIG_MT76)' \
+            "${{ env.DEFCONFIG_FILE }}"
+
+          # Check specific values
+          required=(
+            "CONFIG_CFG80211=m"
+            "CONFIG_MAC80211=m"
+            "CONFIG_WLAN_VENDOR_MEDIATEK=y"
+            "CONFIG_MT76_CORE=m"
+            "CONFIG_MT76_USB=m"
+            "CONFIG_MT76X02_LIB=m"
+            "CONFIG_MT76X02_USB=m"
+            "CONFIG_MT76X2_COMMON=m"
+            "CONFIG_MT76X2U=m"
+          )
+
+          for req in "${required[@]}"; do
+            if ! grep -q "^${req}$" "${{ env.DEFCONFIG_FILE }}"; then
+              echo "ERROR: Missing or incorrect: $req"
+              exit 1
+            fi
+          done
+
+          echo "SUCCESS: All required configs are correct."
+
+      # -----------------------------------------------------------------
+      # 9. Prepare Bazel BUILD.bazel for build
+      # -----------------------------------------------------------------
+      - name: Disable defconfig check in BUILD.bazel
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BUILD_FILE="common/BUILD.bazel"
+
+          if [ ! -f "$BUILD_FILE" ]; then
+            echo "ERROR: BUILD.bazel not found at $BUILD_FILE"
+            exit 1
+          fi
+
+          echo "=== BEFORE PATCH ==="
+          grep -n "kernel_aarch64" "$BUILD_FILE" || true
+
+          # Check if check_defconfig already exists
+          if grep -q 'check_defconfig = "disabled"' "$BUILD_FILE"; then
+            echo "check_defconfig already disabled."
+          else
+            # Insert check_defconfig after the kernel_aarch64 target
+            if grep -q 'name = "kernel_aarch64",' "$BUILD_FILE"; then
+              sed -i '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' "$BUILD_FILE"
+              echo "Inserted check_defconfig = 'disabled' after kernel_aarch64 target."
+            else
+              echo "ERROR: Could not find kernel_aarch64 target in BUILD.bazel"
+              exit 1
+            fi
+          fi
+
+          echo "=== AFTER PATCH ==="
+          grep -n -A 5 'name = "kernel_aarch64"' "$BUILD_FILE"
+
+      # -----------------------------------------------------------------
+      # 10. Build kernel and modules using Bazel
+      # -----------------------------------------------------------------
+      - name: Build GKI and modules
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== BAZEL VERSION ==="
+          tools/bazel version
+
+          echo "=== CLEANUP OLD BAZEL OUTPUT (if any) ==="
+          rm -rf bazel-bin bazel-out bazel-kernel bazel-testlogs
+
+          echo "=== STARTING BAZEL BUILD ==="
+          tools/bazel build \
+            --config=fast \
+            --config=stamp \
+            --disk_cache="${{ env.BAZEL_CACHE_DIR }}" \
+            --allow_undeclared_modules \
+            --preserve_kbuild_output \
+            --verbose_failures \
+            --subcommands \
+            --output_groups=modules_staging_archive \
+            //common:kernel_aarch64
+
+          echo "=== BAZEL BUILD COMPLETED SUCCESSFULLY ==="
+
+      # -----------------------------------------------------------------
+      # 11. Collect MT76 modules
+      # -----------------------------------------------------------------
+      - name: Collect MT76 modules
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== CLEANING OLD ARTIFACTS ==="
+          rm -rf mt76-artifact mt76-staging
+          mkdir -p mt76-artifact mt76-staging
+
+          echo "=== LOCATING MODULE STAGING ARCHIVE ==="
+          ARCHIVE="$(find bazel-bin/common/kernel_aarch64 \
+            -type f \
+            -name 'module_staging_dir.tar.gz' \
+            -print -quit)"
+
+          if [ -z "$ARCHIVE" ]; then
+            echo "ERROR: module_staging_dir.tar.gz not found!"
+            echo "=== LISTING BAZEL OUTPUT ==="
+            find bazel-bin/common/kernel_aarch64 -maxdepth 5 -type f -print | head -500
+            exit 1
+          fi
+
+          echo "Archive found: $ARCHIVE"
+          ls -lh "$ARCHIVE"
+
+          echo "=== EXTRACTING MODULE STAGING ==="
+          tar -xzf "$ARCHIVE" -C mt76-staging
+
+          echo "=== SEARCHING FOR REQUIRED MODULES ==="
+          declare -a MODULE_NAMES_ARRAY=(${{ env.MODULE_NAMES }})
+
+          # First, list all .ko files found for debugging
+          echo "All .ko files found in staging:"
+          find mt76-staging -type f -name '*.ko' -print
+
+          # Copy each required module
+          for name in "${MODULE_NAMES_ARRAY[@]}"; do
+            src="$(find mt76-staging -type f -name "$name" -print -quit)"
+            if [ -z "$src" ]; then
+              echo "ERROR: Required module '$name' not found!"
+              echo "Available modules:"
+              find mt76-staging -type f -name '*.ko' -print
+              exit 1
+            fi
+            echo "Copying $src -> mt76-artifact/$name"
+            cp -L "$src" "mt76-artifact/$name"
+          done
+
+          echo "=== VERIFYING COLLECTED MODULES ==="
+          ls -lh mt76-artifact/
+
+          for name in "${MODULE_NAMES_ARRAY[@]}"; do
+            if [ ! -s "mt76-artifact/$name" ]; then
+              echo "ERROR: Module $name is empty or missing!"
+              exit 1
+            fi
+          done
+
+          echo "SUCCESS: All six MT76 modules collected and verified."
+
+      # -----------------------------------------------------------------
+      # 12. Check module metadata
+      # -----------------------------------------------------------------
+      - name: Check module metadata
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for f in mt76-artifact/*.ko; do
+            echo "================================"
+            echo "File: $f"
+            echo "Size: $(stat -c%s "$f") bytes"
+            echo "--------------------------------"
+            strings "$f" | grep -E '^(name=|depends=|vermagic=)' || true
+            echo "--------------------------------"
+            # Check that vermagic contains the expected kernel version
+            if strings "$f" | grep -q "6.12.30"; then
+              echo "Vermagic contains 6.12.30: OK"
+            else
+              echo "WARNING: vermagic may not contain 6.12.30"
+            fi
+          done
+
+      # -----------------------------------------------------------------
+      # 13. Upload artifacts
+      # -----------------------------------------------------------------
+      - name: Upload MT7612U modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: kernel/mt76-artifact/
+          if-no-files-found: error
+          retention-days: 14
+
+      # -----------------------------------------------------------------
+      # 14. Upload build logs on failure (debugging)
+      # -----------------------------------------------------------------
+      - name: Upload Bazel logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bazel-failure-logs
+          path: |
+            kernel/bazel-out/
+            kernel/bazel-bin/
+            kernel/bazel-testlogs/
+          if-no-files-found: ignore
+          retention-days: 7
