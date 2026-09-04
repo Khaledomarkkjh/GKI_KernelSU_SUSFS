@@ -305,6 +305,37 @@ jobs:
           tools/bazel query \
             //mt76_ext:mt76_ext_module
 
+      - name: Diagnose MT76 Bazel inputs
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          echo "=== BUILD FILE ==="
+          cat mt76_ext/BUILD.bazel
+
+          echo "=== QUERY BUILD OUTPUT ==="
+          tools/bazel query \
+            --output=build \
+            //mt76_ext:mt76_ext_module
+
+          echo "=== PACKAGE FILES ==="
+          tools/bazel query \
+            'kind("source file", //mt76_ext:*)' \
+            --output=label \
+            | sort
+
+          echo "=== EXPECTED FILES ==="
+          test -f mt76_ext/Makefile
+          test -f mt76_ext/mt76/Makefile
+          test -f mt76_ext/mt76/mt76x2/Makefile
+
+          echo "=== FILES EXIST IN WORKSPACE ==="
+          ls -l \
+            mt76_ext/Makefile \
+            mt76_ext/mt76/Makefile \
+            mt76_ext/mt76/mt76x2/Makefile
+
       - name: Build MT76 OOT
         working-directory: kernel
         shell: bash
