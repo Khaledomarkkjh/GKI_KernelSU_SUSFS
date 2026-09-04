@@ -114,28 +114,81 @@ jobs:
 
       - name: Create MT7612U defconfig fragment
         working-directory: kernel/common
+        env:
+          FRAGMENT_CONTENT: |
+            CONFIG_CFG80211=m
+            CONFIG_MAC80211=m
+            CONFIG_WLAN_VENDOR_MEDIATEK=y
+            CONFIG_MT76_CORE=m
+            CONFIG_MT76_USB=m
+            CONFIG_MT76x02_LIB=m
+            CONFIG_MT76x02_USB=m
+            CONFIG_MT76x2_COMMON=m
+            CONFIG_MT76x2U=m
         run: |
           set -eux
 
           FRAGMENT="arch/arm64/configs/mt7612u.fragment"
-
-          cat > "$FRAGMENT" <<'EOF'
-          CONFIG_CFG80211=m
-          CONFIG_MAC80211=m
-          CONFIG_WLAN_VENDOR_MEDIATEK=y
-          CONFIG_MT76_CORE=m
-          CONFIG_MT76_USB=m
-          CONFIG_MT76x02_LIB=m
-          CONFIG_MT76x02_USB=m
-          CONFIG_MT76x2_COMMON=m
-          CONFIG_MT76x2U=m
-          EOF
+          echo "$FRAGMENT_CONTENT" > "$FRAGMENT"
 
           echo "=== MT7612U FRAGMENT ==="
           cat "$FRAGMENT"
 
       - name: Attach MT7612U fragment to GKI target
         working-directory: kernel/common
+        env:
+          PYTHON_SCRIPT: |
+            from pathlib import Path
+
+            path = Path("BUILD.bazel")
+            text = path.read_text()
+
+            marker = 'name = "kernel_aarch64",'
+            start = text.find(marker)
+            if start < 0:
+                raise SystemExit("kernel_aarch64 block not found")
+
+            block_start = text.rfind("common_kernel(", 0, start)
+            block_end = text.find('\n)\n\ncommon_kernel(', start)
+
+            if block_end < 0:
+                block_end = text.find('\n)\n\nfail_rule(', start)
+
+            if block_end < 0:
+                raise SystemExit("kernel_aarch64 block end not found")
+
+            block = text[block_start:block_end]
+
+            if 'pre_defconfig_fragments = ["arch/arm64/configs/mt7612u.fragment"],' not in block:
+                anchor = 'defconfig = "arch/arm64/configs/gki_defconfig",'
+                if anchor not in block:
+                    raise SystemExit("defconfig anchor not found")
+
+                block = block.replace(
+                    anchor,
+                    anchor + '\n'
+                    ' pre_defconfig_fragments = ["arch/arm64/configs/mt7612u.fragment"],',
+                    1,
+                )
+
+            old = 'module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64"),'
+
+            new = '''module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64") + [
+                "drivers/net/wireless/mediatek/mt76/mt76.ko",
+                "drivers/net/wireless/mediatek/mt76/mt76-usb.ko",
+                "drivers/net/wireless/mediatek/mt76/mt76x02-lib.ko",
+                "drivers/net/wireless/mediatek/mt76/mt76x02-usb.ko",
+                "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2-common.ko",
+                "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2u.ko",
+            ],'''
+
+            if old not in block:
+                raise SystemExit("module_implicit_outs anchor not found")
+
+            block = block.replace(old, new, 1)
+
+            text = text[:block_start] + block + text[block_end:]
+            path.write_text(text)
         run: |
           set -eux
 
@@ -146,59 +199,7 @@ jobs:
             | sed -n '/name = "kernel_aarch64",/,/visibility = \["\/\/visibility:public"\]/p' \
             | head -n 120
 
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("BUILD.bazel")
-          text = path.read_text()
-
-          marker = 'name = "kernel_aarch64",'
-          start = text.find(marker)
-          if start < 0:
-              raise SystemExit("kernel_aarch64 block not found")
-
-          block_start = text.rfind("common_kernel(", 0, start)
-          block_end = text.find('\n)\n\ncommon_kernel(', start)
-
-          if block_end < 0:
-              block_end = text.find('\n)\n\nfail_rule(', start)
-
-          if block_end < 0:
-              raise SystemExit("kernel_aarch64 block end not found")
-
-          block = text[block_start:block_end]
-
-          if 'pre_defconfig_fragments = ["arch/arm64/configs/mt7612u.fragment"],' not in block:
-              anchor = 'defconfig = "arch/arm64/configs/gki_defconfig",'
-              if anchor not in block:
-                  raise SystemExit("defconfig anchor not found")
-
-              block = block.replace(
-                  anchor,
-                  anchor + '\n'
-                  ' pre_defconfig_fragments = ["arch/arm64/configs/mt7612u.fragment"],',
-                  1,
-              )
-
-          old = 'module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64"),'
-
-          new = '''module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64") + [
-      "drivers/net/wireless/mediatek/mt76/mt76.ko",
-      "drivers/net/wireless/mediatek/mt76/mt76-usb.ko",
-      "drivers/net/wireless/mediatek/mt76/mt76x02-lib.ko",
-      "drivers/net/wireless/mediatek/mt76/mt76x02-usb.ko",
-      "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2-common.ko",
-      "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2u.ko",
-  ],'''
-
-          if old not in block:
-              raise SystemExit("module_implicit_outs anchor not found")
-
-          block = block.replace(old, new, 1)
-
-          text = text[:block_start] + block + text[block_end:]
-          path.write_text(text)
-          PY
+          python3 -c "$PYTHON_SCRIPT"
 
           echo "=== MODIFIED kernel_aarch64 BLOCK ==="
           sed -n '/name = "kernel_aarch64",/,/visibility = \["\/\/visibility:public"\]/p' "$FILE" \
