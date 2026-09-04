@@ -251,8 +251,6 @@ jobs:
               name = "mt76_ext_module",
               kernel_build = "//common:kernel_aarch64",
 
-              makefile = ["//mt76_ext:Makefile"],
-
               srcs = glob([
                   "mt76/**/*.c",
                   "mt76/**/*.h",
