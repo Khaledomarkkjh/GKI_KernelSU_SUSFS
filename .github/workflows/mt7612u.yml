@@ -14,9 +14,6 @@ jobs:
 
       - name: Setup Wild build environment
         uses: ./.github/actions/setup-build-environment
-        with:
-          version: android16-6.12
-          sublevel: "30"
 
       - name: Download Android 16 kernel
         uses: ./.github/actions/download-kernel
@@ -30,9 +27,12 @@ jobs:
         working-directory: kernel
         run: |
           set -eux
+
           FILE="build/kernel/kleaf/impl/kernel_build.bzl"
+
           grep -nF -- '-name *.h -print0' "$FILE"
           sed -i "s/-name \*\.h -print0/-name '*.h' -print0/g" "$FILE"
+
           echo "=== KLEAF HEADER GLOB FIXED ==="
           grep -nF -- "-name '*.h' -print0" "$FILE"
 
@@ -41,84 +41,207 @@ jobs:
         run: |
           set -eux
 
-          git -C common fetch --depth=1 origin \
-            refs/tags/android16-6.12-2025-07_r7
+          TAG="android16-6.12-2025-07_r7"
+          EXPECTED="6e872b4863d6dd892490c32d973db1a9df8d3710"
 
-          git -C common checkout --detach \
-            FETCH_HEAD
+          if [ -d common/.git ]; then
+            echo "=== COMMON IS ALREADY A GIT CHECKOUT ==="
+
+            git -C common fetch --depth=1 origin \
+              "refs/tags/${TAG}"
+
+          else
+            echo "=== COMMON IS AN ARCHIVE; CONVERTING TO GIT CHECKOUT ==="
+
+            rm -rf common
+
+            git clone \
+              --depth=1 \
+              --branch android16-6.12-2025-07 \
+              https://android.googlesource.com/kernel/common \
+              common
+
+            git -C common fetch --depth=1 origin \
+              "refs/tags/${TAG}"
+          fi
+
+          git -C common checkout --detach FETCH_HEAD
 
           echo "=== COMMON COMMIT ==="
           git -C common rev-parse HEAD
 
-          test "$(git -C common rev-parse HEAD)" = \
-            "6e872b4863d6dd892490c32d973db1a9df8d3710"
+          test "$(git -C common rev-parse HEAD)" = "$EXPECTED"
+
+          echo "=== EXACT R7 SOURCE CONFIRMED ==="
+          git -C common rev-parse HEAD
 
       - name: Verify original MT76 source
         working-directory: kernel
         run: |
           set -eux
 
-          echo "=== MT76 SOURCE ==="
+          echo "=== MT76 SOURCE FILES ==="
 
-          test -f common/drivers/net/wireless/mediatek/mt76/Makefile
+          test -f common/drivers/net/wireless/mediatek/Kconfig
+          test -f common/drivers/net/wireless/mediatek/Makefile
+
           test -f common/drivers/net/wireless/mediatek/mt76/Kconfig
-          test -f common/drivers/net/wireless/mediatek/mt76/mt76x2/Makefile
+          test -f common/drivers/net/wireless/mediatek/mt76/Makefile
+
           test -f common/drivers/net/wireless/mediatek/mt76/mt76x2/Kconfig
+          test -f common/drivers/net/wireless/mediatek/mt76/mt76x2/Makefile
 
-          echo "=== MT76 CONFIG SYMBOLS FROM SOURCE ==="
+          echo "=== MEDIATEK KCONFIG LINK ==="
+          grep -nF \
+            'source "drivers/net/wireless/mediatek/mt76/Kconfig"' \
+            common/drivers/net/wireless/mediatek/Kconfig
 
+          echo "=== MEDIATEK MAKEFILE LINK ==="
+          grep -nF \
+            'obj-$(CONFIG_WLAN_VENDOR_MEDIATEK) += mediatek/' \
+            common/drivers/net/wireless/Makefile
+
+          echo "=== MT76 CONFIG SYMBOLS ==="
           grep -Rns -E \
-            '^config MT76x02_LIB|^config MT76x02_USB|^config MT76x2_COMMON|^config MT76x2U' \
+            '^config MT76_CORE|^config MT76_USB|^config MT76x02_LIB|^config MT76x02_USB|^config MT76x2_COMMON|^config MT76x2U' \
             common/drivers/net/wireless/mediatek/mt76
 
-      - name: Enable MT7612U
+          echo "=== MT76 MAKEFILE OBJECTS ==="
+          grep -nE \
+            'CONFIG_MT76_CORE|CONFIG_MT76_USB|CONFIG_MT76x02_LIB|CONFIG_MT76x02_USB|CONFIG_MT76x2_COMMON|CONFIG_MT76x2U' \
+            common/drivers/net/wireless/mediatek/mt76/Makefile \
+            common/drivers/net/wireless/mediatek/mt76/mt76x2/Makefile
+
+      - name: Create MT7612U defconfig fragment
         working-directory: kernel/common
         run: |
           set -eux
 
-          DEFCONFIG="arch/arm64/configs/gki_defconfig"
+          FRAGMENT="arch/arm64/configs/mt7612u.fragment"
 
-          for line in \
-            "CONFIG_CFG80211=m" \
-            "CONFIG_MAC80211=m" \
-            "CONFIG_WLAN_VENDOR_MEDIATEK=y" \
-            "CONFIG_MT76_CORE=m" \
-            "CONFIG_MT76_USB=m" \
-            "CONFIG_MT76x02_LIB=m" \
-            "CONFIG_MT76x02_USB=m" \
-            "CONFIG_MT76x2_COMMON=m" \
-            "CONFIG_MT76x2U=m"
-          do
-            key="${line%%=*}"
-            value="${line#*=}"
+          cat > "$FRAGMENT" <<'EOF'
+          CONFIG_CFG80211=m
+          CONFIG_MAC80211=m
+          CONFIG_WLAN_VENDOR_MEDIATEK=y
+          CONFIG_MT76_CORE=m
+          CONFIG_MT76_USB=m
+          CONFIG_MT76x02_LIB=m
+          CONFIG_MT76x02_USB=m
+          CONFIG_MT76x2_COMMON=m
+          CONFIG_MT76x2U=m
+          EOF
 
-            if grep -q "^${key}=" "$DEFCONFIG"; then
-              sed -i "s/^${key}=.*/${line}/" "$DEFCONFIG"
-            elif grep -q "^# ${key} is not set" "$DEFCONFIG"; then
-              sed -i "s/^# ${key} is not set/${line}/" "$DEFCONFIG"
-            else
-              echo "$line" >> "$DEFCONFIG"
-            fi
-          done
+          echo "=== MT7612U FRAGMENT ==="
+          cat "$FRAGMENT"
 
-          echo "=== MT7612U CONFIG APPLIED ==="
-
-          grep -E \
-            '^(CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WLAN_VENDOR_MEDIATEK|CONFIG_MT76)' \
-            "$DEFCONFIG"
-
-      - name: Verify MT7612U defconfig
+      - name: Attach MT7612U fragment to GKI target
         working-directory: kernel/common
         run: |
           set -eux
 
-          echo "=== MT76 DECONFIG ==="
+          FILE="BUILD.bazel"
 
-          grep -E \
-            '^(CONFIG_CFG80211|CONFIG_MAC80211|CONFIG_WLAN_VENDOR_MEDIATEK|CONFIG_MT76)' \
-            arch/arm64/configs/gki_defconfig
+          echo "=== ORIGINAL kernel_aarch64 BLOCK ==="
+          sed -n '/common_kernel(/,/visibility = \["\/\/visibility:public"\]/p' "$FILE" \
+            | sed -n '/name = "kernel_aarch64",/,/visibility = \["\/\/visibility:public"\]/p' \
+            | head -n 120
 
-      - name: Build GKI and modules
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("BUILD.bazel")
+          text = path.read_text()
+
+          marker = 'name = "kernel_aarch64",'
+          start = text.find(marker)
+          if start < 0:
+              raise SystemExit("kernel_aarch64 block not found")
+
+          block_start = text.rfind("common_kernel(", 0, start)
+          block_end = text.find('\n)\n\ncommon_kernel(', start)
+
+          if block_end < 0:
+              block_end = text.find('\n)\n\nfail_rule(', start)
+
+          if block_end < 0:
+              raise SystemExit("kernel_aarch64 block end not found")
+
+          block = text[block_start:block_end]
+
+          if 'pre_defconfig_fragments = ["arch/arm64/configs/mt7612u.fragment"],' not in block:
+              anchor = 'defconfig = "arch/arm64/configs/gki_defconfig",'
+              if anchor not in block:
+                  raise SystemExit("defconfig anchor not found")
+
+              block = block.replace(
+                  anchor,
+                  anchor + '\n'
+                  ' pre_defconfig_fragments = ["arch/arm64/configs/mt7612u.fragment"],',
+                  1,
+              )
+
+          old = 'module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64"),'
+
+          new = '''module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64") + [
+      "drivers/net/wireless/mediatek/mt76/mt76.ko",
+      "drivers/net/wireless/mediatek/mt76/mt76-usb.ko",
+      "drivers/net/wireless/mediatek/mt76/mt76x02-lib.ko",
+      "drivers/net/wireless/mediatek/mt76/mt76x02-usb.ko",
+      "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2-common.ko",
+      "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2u.ko",
+  ],'''
+
+          if old not in block:
+              raise SystemExit("module_implicit_outs anchor not found")
+
+          block = block.replace(old, new, 1)
+
+          text = text[:block_start] + block + text[block_end:]
+          path.write_text(text)
+          PY
+
+          echo "=== MODIFIED kernel_aarch64 BLOCK ==="
+          sed -n '/name = "kernel_aarch64",/,/visibility = \["\/\/visibility:public"\]/p' "$FILE" \
+            | head -n 140
+
+      - name: Verify MT7612U build configuration wiring
+        working-directory: kernel/common
+        run: |
+          set -eux
+
+          echo "=== FRAGMENT ==="
+          cat arch/arm64/configs/mt7612u.fragment
+
+          echo "=== BUILD.bazel MT7612U SETTINGS ==="
+          grep -nF \
+            'arch/arm64/configs/mt7612u.fragment' \
+            BUILD.bazel
+
+          grep -nF \
+            'drivers/net/wireless/mediatek/mt76/mt76.ko' \
+            BUILD.bazel
+
+          grep -nF \
+            'drivers/net/wireless/mediatek/mt76/mt76-usb.ko' \
+            BUILD.bazel
+
+          grep -nF \
+            'drivers/net/wireless/mediatek/mt76/mt76x02-lib.ko' \
+            BUILD.bazel
+
+          grep -nF \
+            'drivers/net/wireless/mediatek/mt76/mt76x02-usb.ko' \
+            BUILD.bazel
+
+          grep -nF \
+            'drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2-common.ko' \
+            BUILD.bazel
+
+          grep -nF \
+            'drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2u.ko' \
+            BUILD.bazel
+
+      - name: Build GKI and MT76 modules
         working-directory: kernel
         run: |
           set -eux
@@ -179,38 +302,40 @@ jobs:
           rm -rf mt76-staging
           mkdir -p mt76-staging
 
+          : > mt76-files.txt
+
           echo "=== SEARCHING BUILT MT76 MODULES ==="
 
-          find bazel-bin/common/kernel_aarch64 -type f \
-            \( -name 'mt76.ko' \
-            -o -name 'mt76-usb.ko' \
-            -o -name 'mt76x02-lib.ko' \
-            -o -name 'mt76x02-usb.ko' \
-            -o -name 'mt76x2-common.ko' \
-            -o -name 'mt76x2u.ko' \) \
-            -print | tee mt76-files.txt
-
-          find bazel-out -type f \
-            \( -name 'mt76.ko' \
-            -o -name 'mt76-usb.ko' \
-            -o -name 'mt76x02-lib.ko' \
-            -o -name 'mt76x02-usb.ko' \
-            -o -name 'mt76x2-common.ko' \
-            -o -name 'mt76x2u.ko' \) \
+          find bazel-bin/common/kernel_aarch64 \
+            bazel-out \
+            -type f \
+            \( \
+              -name 'mt76.ko' \
+              -o -name 'mt76-usb.ko' \
+              -o -name 'mt76x02-lib.ko' \
+              -o -name 'mt76x02-usb.ko' \
+              -o -name 'mt76x2-common.ko' \
+              -o -name 'mt76x2u.ko' \
+            \) \
             -print | tee -a mt76-files.txt
 
           ARCHIVE="bazel-bin/common/kernel_aarch64/modules_staging_dir.tar.gz"
 
           if [ -f "$ARCHIVE" ]; then
+            echo "=== EXTRACTING MODULE STAGING ARCHIVE ==="
+
             tar -xzf "$ARCHIVE" -C mt76-staging
 
-            find mt76-staging -type f \
-              \( -name 'mt76.ko' \
-              -o -name 'mt76-usb.ko' \
-              -o -name 'mt76x02-lib.ko' \
-              -o -name 'mt76x02-usb.ko' \
-              -o -name 'mt76x2-common.ko' \
-              -o -name 'mt76x2u.ko' \) \
+            find mt76-staging \
+              -type f \
+              \( \
+                -name 'mt76.ko' \
+                -o -name 'mt76-usb.ko' \
+                -o -name 'mt76x02-lib.ko' \
+                -o -name 'mt76x02-usb.ko' \
+                -o -name 'mt76x2-common.ko' \
+                -o -name 'mt76x2u.ko' \
+              \) \
               -print | tee -a mt76-files.txt
           fi
 
@@ -263,4 +388,3 @@ jobs:
           name: mt7612u-modules
           path: kernel/mt7612u-modules/*.ko
           if-no-files-found: error
-
