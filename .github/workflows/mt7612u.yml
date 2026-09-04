@@ -66,6 +66,8 @@ jobs:
               android16-6.12-2025-07_r7
 
             git checkout -f --detach FETCH_HEAD
+
+            cd ..
           fi
 
           cd common
@@ -274,17 +276,16 @@ jobs:
           kernel_module(
               name = "mt76_ext_module",
               kernel_build = "//common:kernel_aarch64",
-
               makefile = [":Makefile"],
-
               srcs = glob([
                   "mt76/**/*.c",
                   "mt76/**/*.h",
                   "mt76/**/Kconfig",
-                  "mt76/**/Makefile",
+              ]) + [
+                  "mt76/Makefile",
+                  "mt76/mt76x2/Makefile",
                   "Makefile",
-              ]),
-
+              ],
               outs = [
                   "mt76.ko",
                   "mt76-usb.ko",
@@ -293,7 +294,6 @@ jobs:
                   "mt76x2-common.ko",
                   "mt76x2u.ko",
               ],
-
               visibility = ["//visibility:public"],
           )
           EOF
@@ -302,7 +302,6 @@ jobs:
           cat mt76_ext/BUILD.bazel
 
           echo "=== BAZEL QUERY ==="
-
           tools/bazel query \
             //mt76_ext:mt76_ext_module
 
