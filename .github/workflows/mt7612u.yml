@@ -370,7 +370,7 @@ jobs:
               find bazel-bin bazel-out \
                 -type f \
                 -name "$name" \
-                -print -quit 2>/devnull || true
+                -print -quit 2>/dev/null || true
             )"
 
             if [ -z "$src" ]; then
@@ -478,19 +478,19 @@ jobs:
 
           echo "=== MODULE NAME ==="
 
-          modinfo -F name "$DRIVER"
+          modinfo -F name "$DRIVER" 2>/dev/null || true
 
           echo "=== MODULE VERMAGIC ==="
 
-          modinfo -F vermagic "$DRIVER"
+          modinfo -F vermagic "$DRIVER" 2>/dev/null || true
 
           echo "=== MODULE DEPENDENCIES ==="
 
-          modinfo -F depends "$DRIVER"
+          modinfo -F depends "$DRIVER" 2>/dev/null || true
 
           echo "=== MODULE FIRMWARE ==="
 
-          modinfo -F firmware "$DRIVER"
+          modinfo -F firmware "$DRIVER" 2>/dev/null || true
 
       - name: Upload verified MT76 artifacts
         uses: actions/upload-artifact@v4
