@@ -1,10 +1,10 @@
-name: Build MT7612U (In-Tree Strict)
+name: Build MT7612U (OOT from original tree)
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-mt7612u-intree:
+  build-mt7612u-oot:
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -33,13 +33,9 @@ jobs:
           set -euxo pipefail
 
           FILE="build/kernel/kleaf/impl/kernel_build.bzl"
-
           if [ -f "$FILE" ]; then
-            sed -i \
-              "s/-name \*\.h -print0/-name '*.h' -print0/g" \
-              "$FILE"
+            sed -i "s/-name \*\.h -print0/-name '*.h' -print0/g" "$FILE"
           fi
-
           echo "=== KLEAF HEADER GLOB ==="
           grep -nF -- "-name '*.h' -print0" "$FILE" || true
 
@@ -51,16 +47,11 @@ jobs:
 
           if [ ! -d common/.git ]; then
             rm -rf common
-            git clone \
-              --depth=1 \
-              --branch android16-6.12-2025-07_r7 \
-              https://android.googlesource.com/kernel/common \
-              common
+            git clone --depth=1 --branch android16-6.12-2025-07_r7 \
+              https://android.googlesource.com/kernel/common common
           else
             cd common
-            git fetch --depth=1 \
-              https://android.googlesource.com/kernel/common \
-              android16-6.12-2025-07_r7
+            git fetch --depth=1 https://android.googlesource.com/kernel/common android16-6.12-2025-07_r7
             git checkout -f --detach FETCH_HEAD
           fi
 
@@ -69,202 +60,129 @@ jobs:
           echo "=== SOURCE COMMIT ==="
           echo "$COMMIT"
           test "$COMMIT" = "6e872b4863d6dd892490c32d973db1a9df8d3710"
-          echo "=== EXACT ANDROID r7 SOURCE VERIFIED ==="
+          echo "=== EXACT r7 SOURCE VERIFIED ==="
 
-      - name: Prepare MT7612U in-tree module
-        working-directory: kernel/common
+      - name: Prepare MT76 OOT from original tree
+        working-directory: kernel
         shell: bash
         run: |
           set -euxo pipefail
 
-          echo "=== VERIFY EXACT MT76 SOURCE ==="
-          test -f drivers/net/wireless/mediatek/mt76/Makefile
-          test -f drivers/net/wireless/mediatek/mt76/Kconfig
-          test -f drivers/net/wireless/mediatek/mt76/mt76x2/Makefile
-          test -f drivers/net/wireless/mediatek/mt76/mt76x2/Kconfig
+          SRC="common/drivers/net/wireless/mediatek/mt76"
+          EXT="mt76_ext"
 
-          echo "=== CREATE MT7612U CONFIG FRAGMENT ==="
-          cat > arch/arm64/configs/mt7612u_defconfig <<'EOF'
-          CONFIG_WLAN_VENDOR_MEDIATEK=y
-          CONFIG_MT76_CORE=m
-          CONFIG_MT76_USB=m
-          CONFIG_MT76X02_LIB=m
-          CONFIG_MT76X02_USB=m
-          CONFIG_MT76X2_COMMON=m
-          CONFIG_MT76X2U=m
+          echo "=== VERIFY ORIGINAL SOURCE ==="
+          test -f "$SRC/Makefile"
+          test -f "$SRC/Kconfig"
+          test -f "$SRC/mt76x2/Makefile"
+          test -f "$SRC/mt76x2/Kconfig"
+
+          echo "=== COPYING ORIGINAL MT76 TREE ==="
+          rm -rf "$EXT"
+          mkdir -p "$EXT"
+          cp -a "$SRC" "$EXT/mt76"
+
+          echo "=== CREATE CLEAN WRAPPER Makefile (safe method) ==="
+
+          {
+            echo 'KDIR ?= $(KERNEL_SRC)'
+            echo ''
+            echo '.PHONY: all modules modules_install clean'
+            echo ''
+            echo 'all modules:'
+            echo -e '\t$(MAKE) -C $(KDIR) M=$(CURDIR)/mt76 \\'
+            echo -e '\t\tCONFIG_MT76_CORE=m \\'
+            echo -e '\t\tCONFIG_MT76_USB=m \\'
+            echo -e '\t\tCONFIG_MT76x02_LIB=m \\'
+            echo -e '\t\tCONFIG_MT76x02_USB=m \\'
+            echo -e '\t\tCONFIG_MT76x2_COMMON=m \\'
+            echo -e '\t\tCONFIG_MT76x2U=m \\'
+            echo -e '\t\tmodules'
+            echo ''
+            echo 'modules_install:'
+            echo -e '\t$(MAKE) -C $(KDIR) M=$(CURDIR)/mt76 \\'
+            echo -e '\t\tCONFIG_MT76_CORE=m \\'
+            echo -e '\t\tCONFIG_MT76_USB=m \\'
+            echo -e '\t\tCONFIG_MT76x02_LIB=m \\'
+            echo -e '\t\tCONFIG_MT76x02_USB=m \\'
+            echo -e '\t\tCONFIG_MT76x2_COMMON=m \\'
+            echo -e '\t\tCONFIG_MT76x2U=m \\'
+            echo -e '\t\tmodules_install'
+            echo ''
+            echo 'clean:'
+            echo -e '\t$(MAKE) -C $(KDIR) M=$(CURDIR)/mt76 clean'
+          } > "$EXT/Makefile"
+
+          echo "=== WRAPPER Makefile ==="
+          cat -A "$EXT/Makefile"
+
+          echo "=== VERIFY STRUCTURE ==="
+          test -f "$EXT/Makefile"
+          test -f "$EXT/mt76/Makefile"
+          test -f "$EXT/mt76/mt76x2/Makefile"
+          ls -la "$EXT/mt76/mt76x2/"
+
+          echo "=== PREPARATION COMPLETE ==="
+
+      - name: Define MT76 Bazel target
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cat > mt76_ext/BUILD.bazel << 'EOF'
+          load("//build/kernel/kleaf:kernel.bzl", "kernel_module")
+
+          kernel_module(
+              name = "mt76_ext_module",
+              kernel_build = "//common:kernel_aarch64",
+              makefile = [":Makefile"],
+              srcs = glob([
+                  "mt76/**/*.c",
+                  "mt76/**/*.h",
+                  "mt76/**/Makefile",
+                  "mt76/**/Kconfig",
+                  "Makefile",
+              ]),
+              outs = [
+                  "mt76.ko",
+                  "mt76-usb.ko",
+                  "mt76x02-lib.ko",
+                  "mt76x02-usb.ko",
+                  "mt76x2-common.ko",
+                  "mt76x2u.ko",
+              ],
+              visibility = ["//visibility:public"],
+          )
           EOF
 
-          test -s arch/arm64/configs/mt7612u_defconfig
-          cat arch/arm64/configs/mt7612u_defconfig
+          echo "=== BUILD.bazel ==="
+          cat mt76_ext/BUILD.bazel
 
-          echo "=== EXPORT DEFCONFIG TO BAZEL ==="
-          if ! grep -qF 'exports_files(["arch/arm64/configs/mt7612u_defconfig"])' BUILD.bazel; then
-            printf '\nexports_files(["arch/arm64/configs/mt7612u_defconfig"])\n' >> BUILD.bazel
-          fi
-          grep -qF 'exports_files(["arch/arm64/configs/mt7612u_defconfig"])' BUILD.bazel
+          tools/bazel query //mt76_ext:mt76_ext_module
 
-          rm -f drivers/net/wireless/mediatek/mt76/BUILD.bazel
-
-          echo "=== VERIFY kernel_aarch64 EXISTS EXACTLY ONCE ==="
-          COUNT=$(grep -c 'name = "kernel_aarch64",' BUILD.bazel || true)
-          if [ "$COUNT" -ne 1 ]; then
-            echo "ERROR: expected exactly 1 kernel_aarch64 target, found $COUNT"
-            exit 1
-          fi
-
-          echo "=== PATCH kernel_aarch64 (STRICT - using module_implicit_outs) ==="
-          python3 <<'PY'
-          from pathlib import Path
-          import re
-
-          p = Path("BUILD.bazel")
-          s = p.read_text()
-
-          anchor = 'name = "kernel_aarch64",'
-          if s.count(anchor) != 1:
-              raise SystemExit(f"ERROR: expected exactly one kernel_aarch64, found {s.count(anchor)}")
-
-          pos = s.index(anchor)
-          start = s.rfind("common_kernel(", 0, pos)
-          if start < 0:
-              raise SystemExit("ERROR: kernel_aarch64 is not inside common_kernel()")
-
-          # Find balanced end of common_kernel(
-          depth = 0
-          end = None
-          in_string = False
-          escape = False
-          for i in range(start, len(s)):
-              c = s[i]
-              if in_string:
-                  if escape:
-                      escape = False
-                  elif c == "\\":
-                      escape = True
-                  elif c == '"':
-                      in_string = False
-                  continue
-              if c == '"':
-                  in_string = True
-              elif c == "(":
-                  depth += 1
-              elif c == ")":
-                  depth -= 1
-                  if depth == 0:
-                      end = i + 1
-                      break
-
-          if end is None:
-              raise SystemExit("ERROR: could not find end of common_kernel()")
-
-          block = s[start:end]
-
-          # Safety checks
-          if "module_outs =" in block:
-              raise SystemExit("ERROR: unexpected module_outs already present")
-          if "pre_defconfig_fragments" in block:
-              raise SystemExit("ERROR: pre_defconfig_fragments already present")
-          if 'check_defconfig = "disabled"' in block:
-              raise SystemExit("ERROR: check_defconfig already disabled")
-
-          # 1. Insert check_defconfig + pre_defconfig_fragments after the name line
-          insertion = '''name = "kernel_aarch64",
-              check_defconfig = "disabled",
-              pre_defconfig_fragments = [
-                  "arch/arm64/configs/mt7612u_defconfig",
-              ],'''
-
-          new_block = block.replace('name = "kernel_aarch64",', insertion, 1)
-
-          # 2. Extend module_implicit_outs
-          # Original looks like:
-          # module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64"),
-          old_implicit = 'module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64"),'
-
-          new_implicit = '''module_implicit_outs = get_gki_modules_list("arm64") + get_kunit_modules_list("arm64") + [
-                  "drivers/net/wireless/mediatek/mt76/mt76.ko",
-                  "drivers/net/wireless/mediatek/mt76/mt76-usb.ko",
-                  "drivers/net/wireless/mediatek/mt76/mt76x02-lib.ko",
-                  "drivers/net/wireless/mediatek/mt76/mt76x02-usb.ko",
-                  "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2-common.ko",
-                  "drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2u.ko",
-              ],'''
-
-          if old_implicit not in new_block:
-              raise SystemExit("ERROR: could not find the expected module_implicit_outs line")
-
-          new_block = new_block.replace(old_implicit, new_implicit, 1)
-
-          if new_block == block:
-              raise SystemExit("ERROR: patch made no changes")
-
-          s = s[:start] + new_block + s[end:]
-          p.write_text(s)
-          print("=== PATCH APPLIED SUCCESSFULLY ===")
-          PY
-
-          echo "=== VERIFY PATCH ==="
-          grep -n -A55 -B2 'name = "kernel_aarch64"' BUILD.bazel
-
-          echo "=== VERIFY ALL SIX MODULE OUTPUTS ==="
-          for module in \
-            'drivers/net/wireless/mediatek/mt76/mt76.ko' \
-            'drivers/net/wireless/mediatek/mt76/mt76-usb.ko' \
-            'drivers/net/wireless/mediatek/mt76/mt76x02-lib.ko' \
-            'drivers/net/wireless/mediatek/mt76/mt76x02-usb.ko' \
-            'drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2-common.ko' \
-            'drivers/net/wireless/mediatek/mt76/mt76x2/mt76x2u.ko'
-          do
-            grep -qF "\"$module\"" BUILD.bazel || {
-              echo "ERROR: missing module output: $module"
-              exit 1
-            }
-          done
-
-          echo "=== VERIFY DEFCONFIG IS EXPORTED ==="
-          grep -qF 'exports_files(["arch/arm64/configs/mt7612u_defconfig"])' BUILD.bazel
-
-          echo "=== MT7612U PREPARATION COMPLETE ==="
-
-      - name: Build Android 16 6.12.30 kernel + MT76 modules
+      - name: Build MT76 OOT
         working-directory: kernel
         shell: bash
         run: |
           set -euxo pipefail
 
           echo "=========================================="
-          echo " BUILDING //common:kernel_aarch64"
+          echo " BUILDING //mt76_ext:mt76_ext_module"
           echo "=========================================="
 
           tools/bazel build \
             --config=fast \
             --config=stamp \
+            --notrim \
             --disk_cache=/home/runner/.cache/bazel \
             --allow_undeclared_modules \
             --preserve_kbuild_output \
             --verbose_failures \
-            //common:kernel_aarch64
+            --subcommands \
+            //mt76_ext:mt76_ext_module
 
-          echo "=== BUILD FINISHED ==="
-
-      - name: Locate MT76 modules
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          echo "=== SEARCHING FOR MODULES ==="
-          find bazel-bin bazel-out \
-            -type f \
-            \( \
-              -name 'mt76.ko' -o \
-              -name 'mt76-usb.ko' -o \
-              -name 'mt76x02-lib.ko' -o \
-              -name 'mt76x02-usb.ko' -o \
-              -name 'mt76x2-common.ko' -o \
-              -name 'mt76x2u.ko' \
-            \) \
-            -print
+          echo "=== BUILD SUCCESSFUL ==="
 
       - name: Collect MT76 modules
         working-directory: kernel
@@ -283,17 +201,12 @@ jobs:
             mt76x2-common.ko \
             mt76x2u.ko
           do
-            src="$(
-              find bazel-bin bazel-out \
-                -type f \
-                -name "$name" \
-                -print -quit 2>/dev/null || true
-            )"
+            src="$(find bazel-bin bazel-out -type f -name "$name" -print -quit 2>/dev/null || true)"
 
             if [ -z "$src" ]; then
-              echo "ERROR: REQUIRED MODULE NOT FOUND: $name"
-              echo "=== AVAILABLE KO FILES ==="
-              find bazel-bin bazel-out -type f -name '*.ko' | sort | head -200 || true
+              echo "ERROR: MODULE NOT FOUND → $name"
+              echo "=== ALL .ko FILES ==="
+              find bazel-bin bazel-out -type f -name '*.ko' | sort | head -100 || true
               exit 1
             fi
 
@@ -301,7 +214,7 @@ jobs:
             cp -L "$src" "mt76-artifact/$name"
           done
 
-          echo "=== SIX MODULES ==="
+          echo "=== FINAL ARTIFACTS ==="
           ls -lh mt76-artifact/
 
       - name: Deep inspection
@@ -310,58 +223,30 @@ jobs:
         run: |
           set -euxo pipefail
 
-          echo "=========================================="
-          echo " MT76 INSPECTION"
-          echo "=========================================="
-
           for f in mt76-artifact/*.ko; do
             echo
-            echo "------------------------------------------"
-            echo "FILE: $f"
-            echo "------------------------------------------"
+            echo "========== $f =========="
+            echo "[NAME]     $(modinfo -F name "$f" 2>/dev/null || echo N/A)"
+            echo "[VERMAGIC] $(modinfo -F vermagic "$f" 2>/dev/null || strings "$f" | grep '^vermagic=' || echo N/A)"
+            echo "[DEPENDS]  $(modinfo -F depends "$f" 2>/dev/null || echo N/A)"
+            echo "[FIRMWARE] $(modinfo -F firmware "$f" 2>/dev/null || echo N/A)"
 
-            echo "[NAME]"
-            modinfo -F name "$f" 2>/dev/null || true
-
-            echo "[VERMAGIC]"
-            modinfo -F vermagic "$f" 2>/dev/null || \
-              strings "$f" | grep '^vermagic=' || true
-
-            echo "[DEPENDS]"
-            modinfo -F depends "$f" 2>/dev/null || \
-              strings "$f" | grep '^depends=' || true
-
-            echo "[FIRMWARE]"
-            modinfo -F firmware "$f" 2>/dev/null || \
-              strings "$f" | grep '^firmware=' || true
-
-            echo "[BTF]"
             if readelf -S "$f" | grep -q '\.BTF'; then
-              echo "BTF: PRESENT"
+              echo "[BTF]      PRESENT"
             else
-              echo "BTF: ABSENT"
+              echo "[BTF]      ABSENT"
             fi
 
-            echo "[MODVERSIONS]"
             if readelf -S "$f" | grep -q '__versions'; then
-              echo "__versions: PRESENT"
+              echo "[MODVER]   PRESENT"
             else
-              echo "__versions: ABSENT"
+              echo "[MODVER]   ABSENT"
             fi
           done
 
-      - name: Verify MT7612U firmware references
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          echo "=== FIRMWARE REFERENCES ==="
-          grep -RhoE 'mt7662(_rom_patch)?\.bin' common/drivers/net/wireless/mediatek/mt76 | sort -u || true
-
-      - name: Upload verified MT76 artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: MT7612U-InTree-Wild-6.12.30-r7
+          name: MT7612U-OOT-r7-from-original-tree
           path: kernel/mt76-artifact/
           if-no-files-found: error
